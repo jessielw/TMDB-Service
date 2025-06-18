@@ -213,7 +213,7 @@ You can also utilize [Manage Jobs CLI](#manage_jobs-cli) to run numerous command
 
 For convenience I've added **movies.py** and **series.py** models already converted for **Flask-SQLAlchemy** in `examples/flask_sqlalchemy_models/*.py`. You'll need to update `from your_app_service import db` import from your application. However, follow the guide below explaining how you can do this yourself if needed.
 
-To integrate TMDB models into your Flask project using **Flask-SQLAlchemy**, the simplest approach is to copy `movies.py` and `series.py` into your project. You’ll need to make a few adjustments:
+To integrate TMDB models into your Flask project using **Flask-SQLAlchemy**, the simplest approach is to copy `movies.py` and `series.py` into your project. You’ll need to make a few adjustments for **every model** and **every association table**:
 
 - Add `__bind_key__ = "tmdb"` to each model.
 - Add `bind_key="tmdb"` to any `db.Table` association definitions.
