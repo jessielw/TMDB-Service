@@ -208,3 +208,50 @@ _The [example CRON](#env-file-example) schedule should be adequate for most use 
 `CRON_CHANGES_SYNC`: Should be run approximately every **24 hours** to keep up with incremental changes from TMDB.
 
 You can also utilize [Manage Jobs CLI](#manage_jobs-cli) to run numerous commands without utilizing the **CRON** schedules.
+
+## Using with Flask and Flask-SQLAlchemy
+
+To integrate TMDB models into your Flask project using **Flask-SQLAlchemy**, the simplest approach is to copy `movies.py` and `series.py` into your project. You’ll need to make a few adjustments:
+
+- Add `__bind_key__ = "tmdb"` to each model.
+- Add `bind_key="tmdb"` to any `db.Table` association definitions.
+- Adjust model inheritance to use your project's `db.Model`.
+
+### Example
+
+```python
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, SmallInteger, String
+from sqlalchemy.orm import Mapped, MappedAsDataclass, mapped_column, relationship
+
+from your_flask_project import db  # use your actual db instance
+
+class MovieCollections(db.Model, MappedAsDataclass): # ➤ New: Change from (Base) to (db.Model, MappedAsDataclass)
+    __bind_key__ = "tmdb"  # ➤ New: use the TMDB database bind
+    __tablename__ = "movie_collections"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    name: Mapped[str | None] = mapped_column(default=None)
+    poster_path: Mapped[str | None] = mapped_column(String(255), default=None)
+    backdrop_path: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    movies: Mapped[list["Movie"]] = relationship(
+        back_populates="belongs_to_collection",
+        init=False,
+        cascade="all, delete-orphan",
+        single_parent=True,
+        default_factory=list,
+        repr=False,
+    )
+
+movie_genres_assoc = db.Table(
+    "movie_genres_assoc",
+    Column("movie_id", ForeignKey("movie.id"), primary_key=True),
+    Column("genre_id", ForeignKey("movie_genres.id"), primary_key=True),
+    bind_key="tmdb",  # ➤ New: specify bind for the association table
+)
+```
+
+### Notes
+
+- Adding `__bind_key__ = "tmdb"` tells SQLAlchemy to use the TMDB-specific database connection.
+- The TMDB-Service is designed as a **read-only** cache, but nothing stops you from writing to it if needed.
