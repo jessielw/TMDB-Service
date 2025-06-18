@@ -6,7 +6,7 @@ services:
     env_file:
       - .env
     volumes:
-      - /home/tmdb_service/postgres/data:/var/lib/postgresql/data
+      - SOME_PATH:/var/lib/postgresql/data
     networks:
       - proxynet
     ports:
@@ -21,9 +21,8 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/code
-      - /home/jlw4049/webdev/tmdb-service/temp_dir:/temp_dir
-      - /home/jlw4049/webdev/tmdb-service/logs:/logs
+      - SOME_PATH:/temp_dir
+      - SOME_PATH:/logs
     networks:
       - proxynet
     command: ["python", "-m", "tmdb_service.worker"]

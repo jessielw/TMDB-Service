@@ -1,3 +1,7 @@
+# TMDB-Service
+
+Service that Mirrors TMDB API (most of it) to cache locally for use with your own services that need access with quick response times. Setup to work with Postgres. Automatically keeps data 1:1 based on CRON tasks.
+
 ### Should You Use This
 
 - You are running a service or application that frequently accesses TMDB data and would benefit from a local cache to improve performance and reduce external API usage.
@@ -70,21 +74,6 @@ Webhooks will alert you of task completions as well as errors.
 
 _Currently only [maubot-webhook](https://github.com/jkhsjdhjs/maubot-webhook) is supported._
 
-## Required Volumes
-
-### tmdb_postgres
-
-```
-/somewhere:/var/lib/postgresql/data
-```
-
-### tmdb_service
-
-```
-/somewhere/temp:/temp_dir
-/somewhere/logs:/logs
-```
-
 ### manage_jobs CLI
 
 While TMDB-Service is meant to be self maintained, there is a convenience CLI to run some basic commands. You must execute this from within running docker container/network.
@@ -95,7 +84,7 @@ While TMDB-Service is meant to be self maintained, there is a convenience CLI to
 docker compose exec tmdb_service manage_jobs add_movie --id 603
 ```
 
-**Help**:
+**Usage**:
 
 ```
 usage: manage_jobs [-h] [--id ID] [--force]
@@ -143,3 +132,85 @@ docker compose exec tmdb_postgres psql -U tmdb tmdb -f /tmp/dump.sql
 # remove copied dump inside of the container
 docker compose exec tmdb_postgres rm /tmp/dump.sql
 ```
+
+## How To Use
+
+Refer to the [.env example](#env-file-example) for the required environment variables.
+
+### First Time Setup
+
+1. Setup a docker compose file.
+
+   ```yaml
+   services:
+     tmdb_postgres:
+       image: postgres:16
+       container_name: tmdb_postgres
+       restart: unless-stopped
+       env_file:
+         - .env
+       volumes:
+         - SOME_PATH:/var/lib/postgresql/data
+       networks:
+         - proxynet
+       ports:
+         - "5432:5432"
+
+     tmdb_service:
+       build: .
+       container_name: tmdb_service
+       restart: unless-stopped
+       depends_on:
+         - tmdb_postgres
+       env_file:
+         - .env
+       volumes:
+         - SOME_PATH:/temp_dir
+         - SOME_PATH:/logs
+       networks:
+         - proxynet
+       command: ["python", "-m", "tmdb_service.worker"]
+
+   networks:
+     proxynet:
+       external: true
+   ```
+
+2. Start the service.
+
+   `docker compose up`
+
+3. Utilize [Manage Jobs CLI](#manage_jobs-cli) to start initial ingestion in another terminal by triggering the **full_sweep**.
+
+   `docker compose exec tmdb_service manage_jobs full_sweep --force`
+
+   This will take some time depending on network conditions.
+
+### Required Volumes
+
+#### tmdb_postgres
+
+```
+/somewhere:/var/lib/postgresql/data
+```
+
+#### tmdb_service
+
+```
+/somewhere/temp:/temp_dir
+/somewhere/logs:/logs
+```
+
+### Maintaining The Service
+
+This is handled automatically via the CRON tasks (refer to [.env example](#env-file-example)).
+
+_The [example CRON](#env-file-example) schedule should be adequate for most use cases._
+
+`CRON_FULL_SWEEP`: Performs a **complete** re-ingestion of TMDB data from the API, similar to the initial population.
+
+`CRON_MISSING_ONLY`: Ingests only missing IDs based on the most recent full dataset. _(If using `CRON_CHANGES_SYNC` you can disable this)_
+
+`CRON_PRUNE`: Removes any IDs currently in the local cache that no longer exist in the latest full dataset. _(If using `CRON_CHANGES_SYNC` you can disable this)_
+
+`CRON_CHANGES_SYNC`: Should be run approximately every **24 hours** to keep up with incremental changes from TMDB.
