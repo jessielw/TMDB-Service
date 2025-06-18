@@ -1,6 +1,6 @@
 # TMDB-Service
 
-Service that Mirrors TMDB API (most of it) to cache locally for use with your own services that need access with quick response times. Setup to work with Postgres. Automatically keeps data 1:1 based on CRON tasks.
+Service that Mirrors the [TMDB API](https://developer.themoviedb.org/docs/getting-started) (most of it) to cache locally for use with your own services that need access with quick response times. Setup to work with Postgres. Automatically keeps data 1:1 based on CRON tasks.
 
 ### Should You Use This
 
