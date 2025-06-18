@@ -116,6 +116,7 @@ options:
 ### Build Example
 
 ```
+docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/jessielw/tmdb-service:1.0.0 -t ghcr.io/jessielw/tmdb-service:latest --push .
 ```
 
 ### Backup
