@@ -139,7 +139,7 @@ Refer to the [.env example](#env-file-example) for the required environment vari
 
 ### First Time Setup
 
-1. Setup a docker compose file.
+1. Setup a docker compose file _(You can use a .env file or directly supply environmental variables in your docker run/compose)_.
 
    ```yaml
    services:
@@ -151,13 +151,9 @@ Refer to the [.env example](#env-file-example) for the required environment vari
          - .env
        volumes:
          - SOME_PATH:/var/lib/postgresql/data
-       networks:
-         - proxynet
-      # ports:
-      #   - "5432:5432"
 
      tmdb_service:
-       build: .
+       image: ghcr.io/jessielw/tmdb-service:latest
        container_name: tmdb_service
        restart: unless-stopped
        depends_on:
@@ -170,15 +166,11 @@ Refer to the [.env example](#env-file-example) for the required environment vari
        networks:
          - proxynet
        command: ["python", "-m", "tmdb_service.worker"]
-
-   networks:
-     proxynet:
-       external: true
    ```
 
 2. Start the service.
 
-   `docker compose up`
+   `docker compose up` or `docker run ...`
 
 3. Utilize [Manage Jobs CLI](#manage_jobs-cli) to start initial ingestion in another terminal by triggering the **full_sweep**.
 
@@ -214,3 +206,5 @@ _The [example CRON](#env-file-example) schedule should be adequate for most use 
 `CRON_PRUNE`: Removes any IDs currently in the local cache that no longer exist in the latest full dataset. _(If using `CRON_CHANGES_SYNC` you can disable this)_
 
 `CRON_CHANGES_SYNC`: Should be run approximately every **24 hours** to keep up with incremental changes from TMDB.
+
+You can also utilize [Manage Jobs CLI](#manage_jobs-cli) to run numerous commands without utilizing the **CRON** schedules.
