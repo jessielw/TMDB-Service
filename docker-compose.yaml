@@ -1,0 +1,33 @@
+services:
+  tmdb_postgres:
+    image: postgres:16
+    container_name: tmdb_postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - /home/tmdb_service/postgres/data:/var/lib/postgresql/data
+    networks:
+      - proxynet
+    ports:
+      - "5432:5432"
+
+  tmdb_service:
+    build: .
+    container_name: tmdb_service
+    restart: unless-stopped
+    depends_on:
+      - tmdb_postgres
+    env_file:
+      - .env
+    volumes:
+      - .:/code
+      - /home/jlw4049/webdev/tmdb-service/temp_dir:/temp_dir
+      - /home/jlw4049/webdev/tmdb-service/logs:/logs
+    networks:
+      - proxynet
+    command: ["python", "-m", "tmdb_service.worker"]
+
+networks:
+  proxynet:
+    external: true

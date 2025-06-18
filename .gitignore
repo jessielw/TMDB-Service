@@ -1,0 +1,7 @@
+.venv
+.vscode
+.env
+scraps/
+temp_dir/
+logs/
+*.pyc

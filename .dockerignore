@@ -1,0 +1,13 @@
+# folders
+.venv/
+.vscode/
+logs/
+
+# files
+.env
+gitignore
+docker-*.yml
+Dockerfile
+log_rotator.conf
+uv.lock
+README.md
