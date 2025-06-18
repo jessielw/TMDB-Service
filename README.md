@@ -153,8 +153,8 @@ Refer to the [.env example](#env-file-example) for the required environment vari
          - SOME_PATH:/var/lib/postgresql/data
        networks:
          - proxynet
-       ports:
-         - "5432:5432"
+      # ports:
+      #   - "5432:5432"
 
      tmdb_service:
        build: .
