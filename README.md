@@ -99,12 +99,12 @@ docker compose exec tmdb_service manage_jobs add_movie --id 603
 
 ```
 usage: manage_jobs [-h] [--id ID] [--force]
-                   {full_sweep,missing_ids,prune_deleted,create_tables,add_movie,add_series}
+                   {full_sweep,missing_ids,prune_deleted,changes_sync,create_tables,add_movie,add_series}
 
 Enqueue TMDB jobs
 
 positional arguments:
-  {full_sweep,missing_ids,prune_deleted,create_tables,add_movie,add_series}
+  {full_sweep,missing_ids,prune_deleted,changes_sync,create_tables,add_movie,add_series}
                         Type of job to enqueue
 
 options:
