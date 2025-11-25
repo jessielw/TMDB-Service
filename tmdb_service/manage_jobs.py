@@ -17,6 +17,7 @@ def main() -> None:
             "create_tables",
             "add_movie",
             "add_series",
+            "test_webhook",
         ),
         help="Type of job to enqueue",
     )
@@ -25,6 +26,11 @@ def main() -> None:
         "--force",
         action="store_true",
         help="Force full sweep regardless of row counts.",
+    )
+    parser.add_argument(
+        "--message",
+        type=str,
+        help="Custom message for test_webhook",
     )
 
     args = parser.parse_args()
@@ -35,6 +41,9 @@ def main() -> None:
         enqueue_job(args.job_type, str(args.id))
     elif args.job_type == "full_sweep":
         enqueue_job(args.job_type, args.force)
+    elif args.job_type == "test_webhook":
+        message = args.message or "Test webhook message from TMDB Service"
+        enqueue_job(args.job_type, message)
     else:
         enqueue_job(args.job_type)
 

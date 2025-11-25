@@ -7,7 +7,6 @@ from tmdb_service.globals import tmdb_logger
 from tmdb_service.job_queue import get_conn
 from tmdb_service.service import TMDBService
 
-
 JOB_QUEUE_TABLE_SQL = """\
 DROP TABLE IF EXISTS job_queue;
 
@@ -48,6 +47,8 @@ def process_job(job_type: str, payload: Any, service: TMDBService) -> None:
         service.run_single_task_in_thread(service.add_movie_id, int(payload))
     elif job_type == "add_series":
         service.run_single_task_in_thread(service.add_series_id, int(payload))
+    elif job_type == "test_webhook":
+        service.run_single_task_in_thread(service.test_webhook, payload)
     else:
         tmdb_logger.warning(f"Ignoring unknown job: {job_type}.")
 

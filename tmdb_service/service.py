@@ -1,11 +1,11 @@
 import asyncio
+import queue
+import threading
+import traceback
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from functools import partial
-import queue
-import threading
-import traceback
 from typing import Any
 
 import aiocron
@@ -201,7 +201,7 @@ class TMDBService:
             )
 
     async def changes_sync_job(self):
-        tmdb_logger.info("Running daily TMDB changes sync...")
+        tmdb_logger.info("Running TMDB changes sync...")
 
         # check to ensure we just didn't run the last full sweep task in the last 24 hours
         with db() as session:
@@ -210,7 +210,7 @@ class TMDBService:
             last_full_dt = datetime.fromisoformat(last_full)
             if (datetime.now(timezone.utc) - last_full_dt) < timedelta(hours=24):
                 tmdb_logger.info(
-                    "Skipping daily TMDB changes sync: Full Sweep ran within the last 24 hours."
+                    "Skipping TMDB changes sync: Full Sweep ran within the last 24 hours."
                 )
                 return
 
@@ -218,14 +218,14 @@ class TMDBService:
         try:
             await process_tmdb_changes_sync()
             await update_media_release_webhook_async(
-                "**TMDB Service:** Daily TMDB sync task completed."
+                "**TMDB Service:** Sync task completed."
             )
-            tmdb_logger.info("Daily TMDB sync task completed.")
+            tmdb_logger.info("Sync task completed.")
         except Exception as e:
             tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-            tmdb_logger.error(f"Error in daily TMDB sync task: {e}", exc_info=True)
+            tmdb_logger.error(f"Error in TMDB sync task: {e}", exc_info=True)
             await update_media_release_webhook_async(
-                f"**TMDB Service Error in daily TMDB sync task:**  \n```{tb}```"
+                f"**TMDB Service Error in TMDB sync task:**  \n```{tb}```"
             )
 
     async def create_db_tables(self) -> None:
@@ -238,6 +238,15 @@ class TMDBService:
             await update_media_release_webhook_async(
                 f"**TMDB Service Error creating tables:**  \n```{tb}```"
             )
+
+    async def test_webhook(self, message: str) -> None:
+        tmdb_logger.info(f"Testing webhook with message: {message}")
+        try:
+            await update_media_release_webhook_async(message)
+            tmdb_logger.info("Webhook test completed.")
+        except Exception as e:
+            # tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            tmdb_logger.error(f"Error testing webhook: {e}", exc_info=True)
 
     def apply_unaccent(self) -> None:
         if global_config.ENABLE_UNACCENT:
