@@ -137,7 +137,9 @@ async def fetch_tmdb(
             if attempt == MAX_RETRIES:
                 tmdb_logger.warning(f"Failed to get data from TMDB API ({url} - {e}) ")
                 return None
-            tmdb_logger.warning(f"Retry {attempt}/{MAX_RETRIES} for {url} due to {e}")
+            tmdb_logger.warning(
+                f"Retry {attempt}/{MAX_RETRIES} for {url} due to client or timeout error."
+            )
             await asyncio.sleep(RETRY_DELAY)
 
 
