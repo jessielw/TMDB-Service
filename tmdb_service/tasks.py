@@ -1,12 +1,12 @@
 import asyncio
-from collections.abc import Sequence
-from datetime import datetime, timedelta, timezone
 import gzip
 import json
-from pathlib import Path
 import shutil
-from time import time
 import traceback
+from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from time import time
 
 import aiofiles
 import aiohttp
@@ -15,6 +15,7 @@ from sqlalchemy import delete
 from tmdb_service.globals import db, global_config, tmdb_logger
 from tmdb_service.models.movies import Movie
 from tmdb_service.models.series import Series
+from tmdb_service.models.service_metadata import get_metadata, set_metadata
 from tmdb_service.tmdb_task_utils import (
     delete_items_from_db,
     extract_id_from_tmdb_url,
@@ -128,7 +129,7 @@ async def fetch_tmdb(
         try:
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 404:
-                    tmdb_logger.warning(f"404 Not Found for {url}, skipping retries.")
+                    tmdb_logger.debug(f"404 Not Found for {url}, skipping retries.")
                     return False
                 resp.raise_for_status()
                 return await resp.json()
@@ -469,7 +470,7 @@ async def prune_deleted_records():
 async def fetch_all_tmdb_changes(
     endpoint: str, start_date: str | None = None, end_date: str | None = None
 ) -> list[dict]:
-    """Fetch all changed IDs from TMDB, handling pagination."""
+    """Fetch all changed IDs from TMDB, handling pagination with 500-page API limit."""
     headers = get_tmdb_api_headers()
     base_url = f"https://api.themoviedb.org/3/{endpoint}"
     params = []
@@ -483,9 +484,10 @@ async def fetch_all_tmdb_changes(
     results = []
     page = 1
     total_pages = 1
+    MAX_PAGE = 500  # TMDB API hard limit
 
     async with aiohttp.ClientSession() as session:
-        while page <= total_pages:
+        while page <= total_pages and page <= MAX_PAGE:
             paged_url = f"{url}&page={page}" if "?" in url else f"{url}?page={page}"
             async with session.get(paged_url, headers=headers) as resp:
                 resp.raise_for_status()
@@ -494,21 +496,97 @@ async def fetch_all_tmdb_changes(
                 total_pages = data.get("total_pages", 1)
                 page += 1
 
+        if total_pages > MAX_PAGE:
+            tmdb_logger.warning(
+                f"{endpoint}: Hit TMDB API page limit ({MAX_PAGE}). "
+                f"Retrieved {len(results)} changes, but {total_pages} pages exist. "
+                f"Consider running changes sync more frequently or using shorter date ranges."
+            )
+
     return results
 
 
 async def process_tmdb_changes_sync():
     """Sync only changed movies and series from TMDB."""
-    # fetch all changed movie IDs
-    movie_changes = await fetch_all_tmdb_changes("movie/changes")
-    movie_ids = [item["id"] for item in movie_changes if not item.get("adult")]
+    # get the last sync time, default to 14 days ago (TMDB API max)
+    with db() as session:
+        last_sync = get_metadata(session, "last_changes_sync")
 
-    # fetch all changed series IDs
-    series_changes = await fetch_all_tmdb_changes("tv/changes")
-    series_ids = [item["id"] for item in series_changes if not item.get("adult")]
+    if last_sync:
+        start_date = datetime.fromisoformat(last_sync)
+        # ensure we don't query more than 14 days (TMDB API limit)
+        earliest_allowed = datetime.now(timezone.utc) - timedelta(days=14)
+        if start_date < earliest_allowed:
+            tmdb_logger.warning(
+                f"Last sync was {start_date}, more than 14 days ago. "
+                f"Using 14-day look back (TMDB API limit)."
+            )
+            start_date = earliest_allowed
+    else:
+        # first run: look back 14 days (max allowed by TMDB)
+        start_date = datetime.now(timezone.utc) - timedelta(days=14)
+        tmdb_logger.info("No previous sync found, using 14-day look back.")
+
+    end_date = datetime.now(timezone.utc)
+
+    # calculate total days in the range
+    total_days = (end_date - start_date).days
+
+    # Split into chunks to avoid hitting the 500-page limit (50,000 items max)
+    # With 100 items per page, 500 pages = 50,000 items.
+    # To be safe, we'll use smaller chunks: 1-day chunks for ranges > 3 days
+    if total_days > 3:
+        chunk_days = 1  # Process 1 day at a time to minimize pagination issues
+        tmdb_logger.info(
+            f"Date range is {total_days} days. "
+            f"Processing in 1-day chunks to avoid API pagination limits."
+        )
+    else:
+        chunk_days = max(1, total_days)  # For 1-3 day ranges, process all at once
+
+    all_movie_ids = []
+    all_series_ids = []
+
+    # process in chunks
+    current_start = start_date
+    while current_start < end_date:
+        current_end = min(current_start + timedelta(days=chunk_days), end_date)
+        start_str = current_start.strftime("%Y-%m-%d")
+        end_str = current_end.strftime("%Y-%m-%d")
+
+        tmdb_logger.info(f"Syncing changes from {start_str} to {end_str}")
+
+        # fetch changed movie IDs for this chunk
+        movie_changes = await fetch_all_tmdb_changes(
+            "movie/changes", start_date=start_str, end_date=end_str
+        )
+        chunk_movie_ids = [
+            item["id"] for item in movie_changes if item.get("adult") is not True
+        ]
+        all_movie_ids.extend(chunk_movie_ids)
+
+        # fetch changed series IDs for this chunk
+        series_changes = await fetch_all_tmdb_changes(
+            "tv/changes", start_date=start_str, end_date=end_str
+        )
+        chunk_series_ids = [
+            item["id"] for item in series_changes if item.get("adult") is not True
+        ]
+        all_series_ids.extend(chunk_series_ids)
+
+        tmdb_logger.info(
+            f"Chunk {start_str} to {end_str}: "
+            f"{len(chunk_movie_ids)} movies, {len(chunk_series_ids)} series"
+        )
+
+        current_start = current_end
+
+    # deduplicate IDs (same item might have changed multiple times)
+    movie_ids = list(set(all_movie_ids))
+    series_ids = list(set(all_series_ids))
 
     tmdb_logger.info(
-        f"Found {len(movie_ids)} changed movies, {len(series_ids)} changed series."
+        f"Total unique changes: {len(movie_ids)} movies, {len(series_ids)} series."
     )
 
     # fetch and update changed movies
@@ -536,3 +614,11 @@ async def process_tmdb_changes_sync():
             process_batch_fn=add_series,
             item_type="series",
         )
+
+    # update the last sync time after successful completion
+    with db() as session:
+        set_metadata(
+            session, "last_changes_sync", datetime.now(timezone.utc).isoformat()
+        )
+        session.commit()
+    tmdb_logger.info("Changes sync metadata timestamp updated.")
