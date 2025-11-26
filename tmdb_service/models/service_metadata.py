@@ -1,8 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, String
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from tmdb_service.globals import Base
 
