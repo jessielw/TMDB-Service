@@ -53,3 +53,8 @@ class Config:
     WEBHOOK_BOT_USR = os.environ.get("WEBHOOK_BOT_USR")
     WEBHOOK_BOT_PW = os.environ.get("WEBHOOK_BOT_PW")
     WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+
+    # api
+    API_ENABLED = check_truthy(os.environ.get("API_ENABLED"))
+    API_PORT = int(os.environ.get("API_PORT", 8000))
+    API_KEY = os.environ.get("API_KEY")
