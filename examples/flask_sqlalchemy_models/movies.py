@@ -2,8 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, SmallInteger, String
 from sqlalchemy.orm import Mapped, MappedAsDataclass, mapped_column, relationship
-
-from your_app_service import db # UPDATE
+from your_app_service import db  # UPDATE
 
 
 class MovieCollections(db.Model, MappedAsDataclass):

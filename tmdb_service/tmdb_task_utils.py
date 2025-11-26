@@ -1,6 +1,6 @@
+import re
 from collections.abc import Callable, Sequence
 from datetime import datetime
-import re
 from typing import Any
 
 from sqlalchemy import delete as db_delete
@@ -277,7 +277,7 @@ def insert_movie(movie_data: dict) -> None:
             if not ext_ids:
                 ext_ids = MovieExternalIDs(movie_id=movie_data["id"])
                 session.add(ext_ids)
-            ext_data = movie_data["external_ids"]
+            ext_data = movie_data.get("external_ids", {})
             ext_ids.imdb_id = ext_data.get("imdb_id")
             ext_ids.wikidata_id = ext_data.get("wikidata_id")
             ext_ids.facebook_id = ext_data.get("facebook_id")
@@ -605,7 +605,7 @@ def insert_series(series_data: dict) -> None:
             if not ext_ids:
                 ext_ids = SeriesExternalIDs(series_id=series_data["id"])
                 session.add(ext_ids)
-            ext_data = series_data["external_ids"]
+            ext_data = series_data.get("external_ids", {})
             ext_ids.imdb_id = ext_data.get("imdb_id")
             ext_ids.wikidata_id = ext_data.get("wikidata_id")
             ext_ids.facebook_id = ext_data.get("facebook_id")

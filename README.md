@@ -15,6 +15,116 @@ Service that Mirrors the [TMDB API](https://developer.themoviedb.org/docs/gettin
 - You're building a simple app, script, or tool that doesn’t need caching or local storage.
 - You don’t want to maintain an additional service or deal with syncing data.
 
+---
+
+## ⚡ Quick Start
+
+1. **Get your TMDB API token** from [TMDB Settings](https://www.themoviedb.org/settings/api)
+
+2. **Create a `.env` file** (see [configuration](#-configuration) below)
+
+3. **Start the services:**
+
+   ```bash
+   docker compose up -d
+   ```
+
+4. **Trigger initial data ingestion:**
+
+   ```bash
+   docker compose exec tmdb_service manage_jobs full_sweep --force
+   ```
+
+5. **Access your data** via PostgreSQL on `localhost:5432` (or use the optional REST API)
+
+---
+
+## 📦 Configuration
+
+### Environment Variables
+
+Create a `.env` file in your project root:
+
+```env
+# Database Configuration
+DATABASE_URI='postgresql://tmdb:pw@tmdb_postgres:5432/tmdb'
+POSTGRES_USER=tmdb
+POSTGRES_PASSWORD='secure-password-here'
+POSTGRES_DB=tmdb
+
+# PostgreSQL Extensions
+ENABLE_UNACCENT=true  # Improves text search
+
+# TMDB API
+TMDB_READ_ACCESS_TOKEN='your-tmdb-read-access-token'
+TMDB_RATE_LIMIT=45            # Requests per second (TMDB max is 50)
+TMDB_MAX_CONNECTIONS=20       # Concurrent connections (TMDB max is 20)
+TMDB_BATCH_INSERT=1000        # Database batch size
+
+# CRON Schedules (standard cron syntax, or 'false' to disable)
+CRON_FULL_SWEEP='0 3 13,28 * *'    # Full refresh: 3 AM on 13th & 28th
+CRON_MISSING_ONLY='0 6 * * 1'      # Missing IDs: 6 AM Monday
+CRON_PRUNE='0 3 19 * *'            # Cleanup: 3 AM on 19th
+CRON_CHANGES_SYNC='0 18 * * *'     # Daily sync: 6 PM daily
+
+# Logging
+LOG_TO_CONSOLE=true
+LOG_LVL=20  # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR
+
+# Webhooks (Optional - for maubot-webhook)
+WEBHOOK_ENABLED=false
+WEBHOOK_BOT_USR=maubot
+WEBHOOK_BOT_PW=your-webhook-password
+WEBHOOK_URL='https://matrix.example.com/_matrix/maubot/plugin/webhook/send'
+
+# REST API (Optional)
+API_ENABLED=false
+API_PORT=8000
+API_KEY=your-secret-api-key-here
+```
+
+### 📝 Configuration Details
+
+#### CRON Schedules Explained
+
+**CRON_FULL_SWEEP** - Complete data refresh from TMDB exports
+
+- Downloads entire dataset _(this will take several hours on good internet)_
+- Replaces all existing data
+- Resource intensive but ensures perfect sync
+- Recommended: Once or twice monthly during off-peak hours
+
+**CRON_CHANGES_SYNC** - Incremental daily updates ⭐ **Recommended**
+
+- Syncs only items that changed in last 24 hours
+- Lightweight and fast
+- Automatically tracks last sync time
+- Handles new releases, updates, and deletions
+- Skips automatically if full sweep ran within 24h
+
+**CRON_MISSING_ONLY** - Backfill missing IDs
+
+- Finds IDs in TMDB exports that aren't in your database
+- Useful for catching gaps
+- Can be disabled if using daily changes sync
+
+**CRON_PRUNE** - Remove deleted content
+
+- Deletes records that no longer exist in TMDB
+- Keeps database clean
+- Can be disabled if using daily changes sync
+
+#### Disabling CRON Tasks
+
+Set any CRON variable to one of: `""`, `"false"`, `"off"`, `"disable"`, `"disabled"`, or `"no"` (case insensitive)
+
+```env
+CRON_PRUNE='false'
+CRON_MISSING_ONLY='off'
+```
+
+---
+
 ## .env File Example
 
 ```
@@ -23,7 +133,7 @@ POSTGRES_USER=tmdb
 POSTGRES_PASSWORD='pw'
 POSTGRES_DB=tmdb
 ENABLE_UNACCENT=true
-CRON_FULL_SWEEP='0 3 15,30 * *'
+CRON_FULL_SWEEP='0 3 13,28 * *'
 CRON_MISSING_ONLY='0 6 * * 1'
 CRON_PRUNE='0 3 19 * *'
 CRON_CHANGES_SYNC='0 18 * * *'
@@ -39,175 +149,309 @@ WEBHOOK_ENABLED=true
 WEBHOOK_BOT_USR=maubot
 WEBHOOK_BOT_PW=SOME_PASSWORD
 WEBHOOK_URL='https://matrix.SOME_URL.net/_matrix/maubot/plugin/BOT_URL/send'
+
+# api (optional)
+API_ENABLED=true
+API_PORT=8000
+API_KEY='your-secret-api-key-here'
 ```
 
-### Disable CRON tasks
+---
 
-If you'd like to disable of the **CRON tasks** you can simply pass any of the following **""**, **"false"**, **"off"**, **"disable"**, **"disabled"**, or **"no"** _(case insensitive)_.
+## 🌐 HTTP API (Optional)
 
-`CRON_PRUNE=''`
+TMDB-Service includes an optional REST API for programmatic control and integration with external tools.
 
-`CRON_PRUNE='off'`
+### Why Use the API?
 
-#### CRON_CHANGES_SYNC
+- **Automation** - Trigger syncs from CI/CD pipelines or other services
+- **On-Demand Updates** - Add specific movies/series when users request them
+- **Monitoring** - Health checks and status endpoints
+- **Integration** - Easy to integrate with webhooks, automation tools, etc.
 
-This task will automatically keep your database up to date with the most recent changes from TMDB API in the last 24 hours. You can set this task to when ever you want but it should be ran every **24 hours**. On the day that **CRON_FULL_SWEEP** has ran, this task will be skipped automatically.
+### Enable the API
 
-### Log Levels
+Add to your `.env` file:
 
-For `LOG_LVL` provide an **integer** for the logging from below (defaults to 20).
-
-```
-CRITICAL = 50
-ERROR = 40
-WARNING = 30
-INFO = 20
-DEBUG = 10
-NOTSET = 0
+```env
+API_ENABLED=true          # Enable the REST API
+API_PORT=8000            # Port (default: 8000)
+API_KEY=your-secret-key  # API key for authentication (highly recommended!)
 ```
 
-`LOG_LVL=20`
+> **⚠️ Security Note:** If `API_KEY` is not set, the API is accessible without authentication. Always set an API key for production deployments!
 
-### Webhook
+### 📚 Interactive Documentation
 
-Webhooks will alert you of task completions as well as errors.
+Once enabled, explore the full API at:
 
-_Currently only [maubot-webhook](https://github.com/jkhsjdhjs/maubot-webhook) is supported._
+- **Swagger UI:** `http://localhost:8000/docs` (interactive, try-it-out features)
+- **ReDoc:** `http://localhost:8000/redoc` (clean, readable documentation)
 
-### manage_jobs CLI
+### 🔑 Authentication
 
-While TMDB-Service is meant to be self maintained, there is a convenience CLI to run some basic commands. You must execute this from within running docker container/network.
+Include your API key in the `X-API-Key` header with all requests:
 
-**Add Movie**:
-
-```
-docker compose exec tmdb_service manage_jobs add_movie --id 603
-```
-
-**Usage**:
-
-```
-usage: manage_jobs [-h] [--id ID] [--force]
-                   {full_sweep,missing_ids,prune_deleted,changes_sync,create_tables,add_movie,add_series}
-
-Enqueue TMDB jobs
-
-positional arguments:
-  {full_sweep,missing_ids,prune_deleted,changes_sync,create_tables,add_movie,add_series}
-                        Type of job to enqueue
-
-options:
-  -h, --help            show this help message and exit
-  --id ID               TMDB ID for add_movie/add_series
-  --force               Force full sweep regardless of row counts.
+```bash
+curl -H "X-API-Key: your-secret-key" http://localhost:8000/health
 ```
 
-### Build Example
+### 📡 Available Endpoints
+
+<table>
+<tr><th>Category</th><th>Endpoint</th><th>Description</th></tr>
+
+<tr><td rowspan="6"><b>Jobs</b></td>
+<td><code>POST /jobs/full-sweep</code></td>
+<td>Trigger complete TMDB data refresh</td></tr>
+
+<tr><td><code>POST /jobs/changes-sync</code></td>
+<td>Sync recent changes (recommended for daily use)</td></tr>
+
+<tr><td><code>POST /jobs/missing-ids</code></td>
+<td>Backfill missing TMDB IDs</td></tr>
+
+<tr><td><code>POST /jobs/prune-deleted</code></td>
+<td>Remove records deleted from TMDB</td></tr>
+
+<tr><td><code>POST /jobs/create-tables</code></td>
+<td>Initialize database schema</td></tr>
+
+<tr><td><code>POST /jobs/test-webhook</code></td>
+<td>Test webhook notifications</td></tr>
+
+<tr><td rowspan="2"><b>Media</b></td>
+<td><code>POST /movies/{tmdb_id}</code></td>
+<td>Add or update specific movie by ID</td></tr>
+
+<tr><td><code>POST /series/{tmdb_id}</code></td>
+<td>Add or update specific TV series by ID</td></tr>
+
+<tr><td rowspan="2"><b>Health</b></td>
+<td><code>GET /</code></td>
+<td>API service information</td></tr>
+
+<tr><td><code>GET /health</code></td>
+<td>Health check endpoint</td></tr>
+</table>
+
+### 💡 Example Usage
+
+```bash
+# Add a specific movie (Fight Club)
+curl -X POST \
+  -H "X-API-Key: your-secret-key" \
+  http://localhost:8000/movies/550
+
+# Trigger incremental sync
+curl -X POST \
+  -H "X-API-Key: your-secret-key" \
+  http://localhost:8000/jobs/changes-sync
+
+# Full data refresh with force flag
+curl -X POST \
+  -H "X-API-Key: your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"force": true}' \
+  http://localhost:8000/jobs/full-sweep
+
+# Test webhook notifications
+curl -X POST \
+  -H "X-API-Key: your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Test notification"}' \
+  http://localhost:8000/jobs/test-webhook
+```
+
+### 🔒 Concurrent Request Protection
+
+The API automatically prevents duplicate job execution:
+
+- Multiple requests for the same job type are safely queued
+- Only one instance of each global job runs at a time
+- Duplicate requests are logged and rejected gracefully
+- No risk of database conflicts or wasted resources
+
+---
+
+## 🖥 CLI Management
+
+The `manage_jobs` CLI provides manual control over all service operations. Execute commands from within the running container:
+
+### Common Commands
+
+```bash
+# Add a specific movie
+docker compose exec tmdb_service manage_jobs add_movie --id 550
+
+# Add a TV series
+docker compose exec tmdb_service manage_jobs add_series --id 1396
+
+# Trigger full sweep (with force flag)
+docker compose exec tmdb_service manage_jobs full_sweep --force
+
+# Sync recent changes
+docker compose exec tmdb_service manage_jobs changes_sync
+
+# Sync missing IDs
+docker compose exec tmdb_service manage_jobs missing_ids
+
+# Remove deleted records
+docker compose exec tmdb_service manage_jobs prune_deleted
+
+# Test webhook
+docker compose exec tmdb_service manage_jobs test_webhook --message "Test alert"
+```
+
+### CLI Reference
 
 ```
-docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/jessielw/tmdb-service:1.0.0 -t ghcr.io/jessielw/tmdb-service:latest --push .
+Usage: manage_jobs [-h] [--id ID] [--force] [--message MESSAGE]
+                   {full_sweep,missing_ids,prune_deleted,changes_sync,
+                    create_tables,add_movie,add_series,test_webhook}
+
+Options:
+  --id ID           TMDB ID for add_movie/add_series
+  --force           Force full sweep regardless of existing data
+  --message TEXT    Custom message for webhook testing
 ```
 
-### Backup
+---
 
+## 🗄 Database Backup & Restore
+
+### Backup Database
+
+```bash
+docker compose exec tmdb_postgres pg_dump -U tmdb tmdb > backup_$(date +%Y%m%d).sql
 ```
-docker compose exec postgres pg_dump -U tmdb tmdb > /some_path/dump.sql
-```
 
-### Restore
+### Restore Database
 
-```
-# copy dump
-docker compose cp /some_path/dump.sql tmdb_postgres:/tmp/dump.sql
+```bash
+# Copy dump to container
+docker compose cp backup.sql tmdb_postgres:/tmp/dump.sql
 
-# clean schema
+# Drop existing schema
 docker compose exec tmdb_postgres psql -U tmdb tmdb -c "DROP SCHEMA public CASCADE;"
 
-# create schema
+# Recreate schema
 docker compose exec tmdb_postgres psql -U tmdb tmdb -c "CREATE SCHEMA public;"
 
-# update database from copied dump
+# Restore from dump
 docker compose exec tmdb_postgres psql -U tmdb tmdb -f /tmp/dump.sql
 
-# remove copied dump inside of the container
+# Cleanup
 docker compose exec tmdb_postgres rm /tmp/dump.sql
 ```
 
-## How To Use
+---
 
-Refer to the [.env example](#env-file-example) for the required environment variables.
+## 🚢 Docker Deployment
+
+### Docker Compose Setup
+
+Create a `docker-compose.yaml` file:
+
+```yaml
+services:
+  tmdb_postgres:
+    image: postgres:16
+    container_name: tmdb_postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  tmdb_service:
+    image: ghcr.io/jessielw/tmdb-service:latest
+    container_name: tmdb_service
+    restart: unless-stopped
+    depends_on:
+      - tmdb_postgres
+    env_file:
+      - .env
+    volumes:
+      - ./temp_dir:/temp_dir
+      - ./logs:/logs
+    command: ["python", "-m", "tmdb_service.worker"]
+
+  # Optional: REST API service
+  tmdb_api:
+    image: ghcr.io/jessielw/tmdb-service:latest
+    container_name: tmdb_api
+    restart: on-failure
+    depends_on:
+      - tmdb_postgres
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT:-8000}:${API_PORT:-8000}"
+    command: ["python", "-m", "tmdb_service.api_server"]
+```
 
 ### First Time Setup
 
-1. Setup a docker compose file _(You can use a .env file or directly supply environmental variables in your docker run/compose)_.
+1. **Create your `.env` file** (see [Configuration](#-configuration))
 
-   ```yaml
-   services:
-     tmdb_postgres:
-       image: postgres:16
-       container_name: tmdb_postgres
-       restart: unless-stopped
-       env_file:
-         - .env
-       volumes:
-         - SOME_PATH:/var/lib/postgresql/data
+2. **Start the services:**
 
-     tmdb_service:
-       image: ghcr.io/jessielw/tmdb-service:latest
-       container_name: tmdb_service
-       restart: unless-stopped
-       depends_on:
-         - tmdb_postgres
-       env_file:
-         - .env
-       volumes:
-         - SOME_PATH:/temp_dir
-         - SOME_PATH:/logs
-       networks:
-         - proxynet
-       command: ["python", "-m", "tmdb_service.worker"]
+   ```bash
+   docker compose up -d
+
+   # Or with API enabled:
+   docker compose --profile api up -d
    ```
 
-2. Start the service.
+3. **Trigger initial data ingestion:**
 
-   `docker compose up` or `docker run ...`
+   ```bash
+   docker compose exec tmdb_service manage_jobs full_sweep --force
+   ```
 
-3. Utilize [Manage Jobs CLI](#manage_jobs-cli) to start initial ingestion in another terminal by triggering the **full_sweep**.
+   This downloads the complete TMDB dataset (10-20 minutes depending on your connection).
 
-   `docker compose exec tmdb_service manage_jobs full_sweep --force`
+4. **Verify the data:**
 
-   This will take some time depending on network conditions.
+   ```bash
+   # Check database
+   docker compose exec tmdb_postgres psql -U tmdb tmdb -c "SELECT COUNT(*) FROM movie;"
 
-### Required Volumes
+   # Check logs
+   docker compose logs -f tmdb_service
+   ```
 
-#### tmdb_postgres
+### 📁 Required Volumes
 
+| Container       | Mount Point                | Purpose                     |
+| --------------- | -------------------------- | --------------------------- |
+| `tmdb_postgres` | `/var/lib/postgresql/data` | PostgreSQL data persistence |
+| `tmdb_service`  | `/temp_dir`                | Temporary files during sync |
+| `tmdb_service`  | `/logs`                    | Application logs            |
+
+### 🔄 Ongoing Maintenance
+
+**Automatic (Recommended):** Configure CRON schedules in your `.env` file for hands-off operation.
+
+**Manual:** Use the [CLI](#-cli-management) or [API](#-http-api-optional) to trigger jobs on-demand.
+
+### 🏗 Building from Source
+
+```bash
+# Multi-platform build
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/jessielw/tmdb-service:latest \
+  --push .
+
+# Local build
+docker build -t tmdb-service:local .
 ```
-/somewhere:/var/lib/postgresql/data
-```
 
-#### tmdb_service
-
-```
-/somewhere/temp:/temp_dir
-/somewhere/logs:/logs
-```
-
-### Maintaining The Service
-
-This is handled automatically via the CRON tasks (refer to [.env example](#env-file-example)).
-
-_The [example CRON](#env-file-example) schedule should be adequate for most use cases._
-
-`CRON_FULL_SWEEP`: Performs a **complete** re-ingestion of TMDB data from the API, similar to the initial population.
-
-`CRON_MISSING_ONLY`: Ingests only missing IDs based on the most recent full dataset. _(If using `CRON_CHANGES_SYNC` you can disable this)_
-
-`CRON_PRUNE`: Removes any IDs currently in the local cache that no longer exist in the latest full dataset. _(If using `CRON_CHANGES_SYNC` you can disable this)_
-
-`CRON_CHANGES_SYNC`: Should be run approximately every **24 hours** to keep up with incremental changes from TMDB.
-
-You can also utilize [Manage Jobs CLI](#manage_jobs-cli) to run numerous commands without utilizing the **CRON** schedules.
+---
 
 ## Using with Flask and Flask-SQLAlchemy
 

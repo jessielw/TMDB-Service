@@ -13,7 +13,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from tmdb_service.globals import Base
 
-
 series_created_by_assoc = Table(
     "series_created_by_assoc",
     Base.metadata,
