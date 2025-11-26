@@ -5,3 +5,4 @@ scraps/
 temp_dir/
 logs/
 *.pyc
+docker-compose.yaml
