@@ -8,6 +8,7 @@ from tmdb_service.globals import global_config, tmdb_logger
 
 async def update_media_release_webhook_async(message: str) -> None:
     if not global_config.WEBHOOK_ENABLED:
+        tmdb_logger.debug("Webhook is disabled, skipping notification.")
         return
 
     if (
@@ -16,9 +17,10 @@ async def update_media_release_webhook_async(message: str) -> None:
         or not global_config.WEBHOOK_BOT_PW
     ):
         tmdb_logger.error(
-            "Attempted to execute the webhook with missing URL or credentials."
+            "Webhook enabled but missing URL or credentials. "
+            "Check WEBHOOK_URL, WEBHOOK_BOT_USR, and WEBHOOK_BOT_PW."
         )
-        raise ValueError("Missing webhook URL or credentials.")
+        return
 
     retry_count = 0
     MAX_RETRIES = 6
@@ -34,24 +36,41 @@ async def update_media_release_webhook_async(message: str) -> None:
                     json=data,
                     headers=headers,
                     auth=auth,
+                    timeout=aiohttp.ClientTimeout(total=10),
                 ) as response:
+                    response_text = await response.text()
                     if response.status == 200:
-                        tmdb_logger.debug(f"Webhook sent successfully ({message}).")
+                        tmdb_logger.info(
+                            f"Webhook sent successfully: {message[:100]}..."
+                        )
                         return
+
                     tmdb_logger.warning(
-                        f"Failed to send webhook: {response.status} ({response.reason}). Trying again..."
+                        f"Webhook failed with status {response.status} ({response.reason}). "
+                        f"Response: {response_text[:200]}. Retry {retry_count + 1}/{MAX_RETRIES}"
                     )
         except aiohttp.ClientError as e:
-            tmdb_logger.warning(f"ClientError while sending webhook: {e}. Retrying...")
+            tmdb_logger.warning(
+                f"ClientError while sending webhook: {e}. "
+                f"Retry {retry_count + 1}/{MAX_RETRIES}"
+            )
+        except asyncio.TimeoutError:
+            tmdb_logger.warning(
+                f"Webhook request timed out. Retry {retry_count + 1}/{MAX_RETRIES}"
+            )
 
         retry_count += 1
-        await asyncio.sleep(1)
+        if retry_count < MAX_RETRIES:
+            await asyncio.sleep(2)  # Increased delay between retries
 
-    tmdb_logger.warning(f"Webhook failed after {MAX_RETRIES} retries")
+    tmdb_logger.error(
+        f"Webhook failed after {MAX_RETRIES} retries. Message: {message[:100]}..."
+    )
 
 
 def update_media_release_webhook_sync(message: str) -> asyncio.Task | None:
     if not global_config.WEBHOOK_ENABLED:
+        tmdb_logger.debug("Webhook is disabled, skipping notification.")
         return
 
     try:
@@ -60,4 +79,5 @@ def update_media_release_webhook_sync(message: str) -> asyncio.Task | None:
         return asyncio.create_task(update_media_release_webhook_async(message))
     except RuntimeError:
         # not in an async context, run the async function synchronously
-        return asyncio.run(update_media_release_webhook_async(message))
+        asyncio.run(update_media_release_webhook_async(message))
+        return
