@@ -1,6 +1,6 @@
-from collections.abc import Generator
 import csv
 import json
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
