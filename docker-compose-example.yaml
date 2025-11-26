@@ -1,0 +1,44 @@
+services:
+  tmdb_postgres:
+    image: postgres:16
+    container_name: tmdb_postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - SOME_PATH:/var/lib/postgresql/data
+    networks:
+      - proxynet
+
+  tmdb_service:
+    image: ghcr.io/jessielw/tmdb-service:latest
+    container_name: tmdb_service
+    restart: unless-stopped
+    depends_on:
+      - tmdb_postgres
+    env_file:
+      - .env
+    volumes:
+      - SOME_PATH:/temp_dir
+      - SOME_PATH:/logs
+    networks:
+      - proxynet
+    command: ["python", "-m", "tmdb_service.worker"]
+
+  tmdb_api:
+    image: ghcr.io/jessielw/tmdb-service:latest
+    container_name: tmdb_api
+    restart: on-failure
+    depends_on:
+      - tmdb_postgres
+    env_file:
+      - .env
+    networks:
+      - proxynet
+    ports:
+      - "${API_PORT:-8000}:${API_PORT:-8000}"
+    command: ["python", "-m", "tmdb_service.api_server"]
+
+networks:
+  proxynet:
+    external: true
