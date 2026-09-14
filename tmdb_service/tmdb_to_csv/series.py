@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from time import time
 from typing import Any
 
 import aiohttp
@@ -191,19 +192,39 @@ async def process_series(
     writers: dict[Any, Any],
     headers: dict[Any, Any],
     dedup_sets: dict[str, set[Any]],
-) -> None:
+) -> int:
+    """Write a series chunk and return the number of transient processing failures."""
     urls = [
         f"https://api.themoviedb.org/3/tv/{series_id}?append_to_response=alternative_titles,credits,"
-        f"external_ids,keywords,release_dates,videos"
+        f"external_ids,keywords,videos"
         for series_id in series_ids
     ]
-    connector = aiohttp.TCPConnector(limit=global_config.TMDB_MAX_CONNECTIONS)
+    max_connections = global_config.TMDB_MAX_CONNECTIONS
+    rate_limit = global_config.TMDB_RATE_LIMIT * max_connections
+    semaphore = asyncio.Semaphore(max_connections)
+    connector = aiohttp.TCPConnector(limit=max_connections)
+    start_time_loop = time()
+    fetch_failures = 0
+
     async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = [fetch_tmdb(session, url, headers) for url in urls]
+
+        async def fetch_with_semaphore(url_for_task: str, index: int):
+            delay = start_time_loop + (index / rate_limit) - time()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            async with semaphore:
+                return await fetch_tmdb(session, url_for_task, headers)
+
+        tasks = [fetch_with_semaphore(url, index) for index, url in enumerate(urls)]
         for coro in asyncio.as_completed(tasks):
             try:
                 data = await coro
-                if not data:
+                if data is False:
+                    # A 404 means the title is genuinely gone.
+                    continue
+                if data is None:
+                    # Omitting a live title from the CSV would delete it on promotion.
+                    fetch_failures += 1
                     continue
 
                 writers["series"].writerow(
@@ -528,7 +549,10 @@ async def process_series(
                         )
                         dedup_sets["series_videos"].add(video_id)
             except Exception as e:
+                fetch_failures += 1
                 tmdb_logger.error(f"Error processing series data: {e}", exc_info=True)
+
+    return fetch_failures
 
 
 def get_series_copy_commands(base_path: Path) -> list[Any]:

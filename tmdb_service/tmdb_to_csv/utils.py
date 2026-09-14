@@ -14,12 +14,16 @@ def open_csv_writers(
 ) -> tuple[dict[Any, Any], dict[Any, Any]]:
     files = {}
     writers = {}
-    for key, path in csv_paths.items():
-        f = open(path, "w", newline="", encoding="utf-8")
-        files[key] = f
-        writer = csv.DictWriter(f, fieldnames=fieldnames[key])
-        writer.writeheader()
-        writers[key] = writer
+    try:
+        for key, path in csv_paths.items():
+            f = open(path, "w", newline="", encoding="utf-8")
+            files[key] = f
+            writer = csv.DictWriter(f, fieldnames=fieldnames[key])
+            writer.writeheader()
+            writers[key] = writer
+    except Exception:
+        close_csv_files(files)
+        raise
     return files, writers
 
 

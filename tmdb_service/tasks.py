@@ -5,6 +5,7 @@ import shutil
 import traceback
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from time import time
 
@@ -23,6 +24,31 @@ from tmdb_service.tmdb_task_utils import (
     insert_movie,
     insert_series,
 )
+
+RETRY_KEY_MOVIES = "changes_sync_retry_movies"
+RETRY_KEY_SERIES = "changes_sync_retry_series"
+MAX_RETRY_IDS = 50_000
+
+
+def _retry_delay(error: Exception, attempt: int) -> float:
+    """Return a bounded exponential delay, honoring Retry-After when supplied."""
+    headers = getattr(error, "headers", None)
+    retry_after = headers.get("Retry-After") if headers else None
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                tmdb_logger.warning(
+                    f"Ignoring invalid Retry-After header: {retry_after!r}."
+                )
+
+    return min(2**attempt, 60)
 
 
 def format_url_with_date(input_str: str) -> str:
@@ -123,7 +149,6 @@ async def fetch_tmdb(
 ) -> dict | None | bool:
     """Fetch TMDB API results"""
     MAX_RETRIES = 10
-    RETRY_DELAY = 2
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -137,10 +162,12 @@ async def fetch_tmdb(
             if attempt == MAX_RETRIES:
                 tmdb_logger.warning(f"Failed to get data from TMDB API ({url} - {e}) ")
                 return None
+            retry_delay = _retry_delay(e, attempt)
             tmdb_logger.warning(
-                f"Retry {attempt}/{MAX_RETRIES} for {url} due to client or timeout error."
+                f"Retry {attempt}/{MAX_RETRIES} for {url} due to client or timeout "
+                f"error; waiting {retry_delay:.1f} seconds."
             )
-            await asyncio.sleep(RETRY_DELAY)
+            await asyncio.sleep(retry_delay)
 
 
 async def fetch_and_process(
@@ -150,32 +177,29 @@ async def fetch_and_process(
     log_prefix,
     process_batch_fn,
     item_type: str,
-) -> None:
+) -> list[int]:
     semaphore = asyncio.Semaphore(max_connections)
     headers = get_tmdb_api_headers()
     connector = aiohttp.TCPConnector(limit=max_connections)
+    start_time_loop = time()
 
-    async def fetch_with_semaphore(url_for_task: str):
+    async def fetch_with_semaphore(url_for_task: str, index: int):
+        delay = start_time_loop + (index / rate_limit) - time()
+        if delay > 0:
+            await asyncio.sleep(delay)
         async with semaphore:
             api_result = await fetch_tmdb(session, url_for_task, headers)
             return url_for_task, api_result
 
     results_batch = []
     ids_to_delete = []
+    failed_ids: list[int] = []
     total_processed_for_ingest = 0
     exceptions = 0
-    start_time_loop = time()
 
     async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = [fetch_with_semaphore(url) for url in urls]
+        tasks = [fetch_with_semaphore(url, index) for index, url in enumerate(urls)]
         for i, coro_task in enumerate(asyncio.as_completed(tasks), 1):
-            # rate limit: space out requests
-            now = time()
-            expected_time_for_request = i / rate_limit
-            elapsed_time = now - start_time_loop
-            if elapsed_time < expected_time_for_request:
-                await asyncio.sleep(expected_time_for_request - elapsed_time)
-
             original_url, result_data = await coro_task
 
             if result_data is False:  # false indicates 404 not found
@@ -187,6 +211,9 @@ async def fetch_and_process(
             # result_data is None (other error) or unexpected type
             else:
                 exceptions += 1
+                item_id = extract_id_from_tmdb_url(original_url)
+                if item_id:
+                    failed_ids.append(item_id)
                 if result_data is not None:
                     tmdb_logger.warning(
                         f"Unexpected result type from fetch_tmdb for {original_url}: {type(result_data)}."
@@ -196,7 +223,7 @@ async def fetch_and_process(
                 tmdb_logger.info(
                     f"{log_prefix}: inserting batch of {len(results_batch)}."
                 )
-                process_batch_fn(results_batch)
+                failed_ids.extend(process_batch_fn(results_batch))
                 total_processed_for_ingest += len(results_batch)
                 tmdb_logger.info(
                     f"{log_prefix}: inserted {total_processed_for_ingest}/"
@@ -211,7 +238,7 @@ async def fetch_and_process(
 
         # insert any remaining results
         if results_batch:
-            process_batch_fn(results_batch)
+            failed_ids.extend(process_batch_fn(results_batch))
             total_processed_for_ingest += len(results_batch)
             tmdb_logger.info(
                 f"{log_prefix} Inserted {total_processed_for_ingest}/{len(urls) - len(ids_to_delete) - exceptions}."
@@ -229,6 +256,7 @@ async def fetch_and_process(
         f"{log_prefix} {exceptions} exceptions out of {len(urls)} requests. "
         f"{len(ids_to_delete)} items marked for deletion."
     )
+    return failed_ids
 
 
 async def ingest_single_movie(movie_id: int) -> None:
@@ -257,24 +285,34 @@ async def ingest_single_series(series_id: int):
             insert_series(data)
 
 
-def add_movies(movies_data: Sequence[dict]) -> None:
-    """Add fetched TMDB API data to the database"""
+def add_movies(movies_data: Sequence[dict]) -> list[int]:
+    """Add fetched TMDB API data and return IDs that failed to insert."""
+    failed: list[int] = []
     for movie in movies_data:
         try:
             insert_movie(movie)
         except Exception as e:
+            movie_id = movie.get("id")
+            if movie_id is not None:
+                failed.append(movie_id)
             msg = f"{e}\n{traceback.format_exc()}"
             tmdb_logger.error(msg)
+    return failed
 
 
-def add_series(series_data: Sequence[dict]) -> None:
-    """Add fetched TMDB API data to the database"""
+def add_series(series_data: Sequence[dict]) -> list[int]:
+    """Add fetched TMDB API data and return IDs that failed to insert."""
+    failed: list[int] = []
     for series in series_data:
         try:
             insert_series(series)
         except Exception as e:
+            series_id = series.get("id")
+            if series_id is not None:
+                failed.append(series_id)
             msg = f"{e}\n{traceback.format_exc()}"
             tmdb_logger.error(msg)
+    return failed
 
 
 async def update_missing_ids():
@@ -499,10 +537,11 @@ async def fetch_all_tmdb_changes(
                 page += 1
 
         if total_pages > MAX_PAGE:
-            tmdb_logger.warning(
-                f"{endpoint}: Hit TMDB API page limit ({MAX_PAGE}). "
-                f"Retrieved {len(results)} changes, but {total_pages} pages exist. "
-                f"Consider running changes sync more frequently or using shorter date ranges."
+            raise RuntimeError(
+                f"{endpoint}: hit the TMDB {MAX_PAGE}-page limit for "
+                f"{start_date} to {end_date} ({total_pages} pages exist, "
+                f"{len(results)} retrieved). Refusing to advance the sync watermark "
+                f"past changes that were not fetched."
             )
 
     return results
@@ -510,9 +549,11 @@ async def fetch_all_tmdb_changes(
 
 async def process_tmdb_changes_sync():
     """Sync only changed movies and series from TMDB."""
-    # get the last sync time, default to 14 days ago (TMDB API max)
+    # Get the last sync time and failures from the previous run.
     with db() as session:
         last_sync = get_metadata(session, "last_changes_sync")
+        retry_movies = json.loads(get_metadata(session, RETRY_KEY_MOVIES) or "[]")
+        retry_series = json.loads(get_metadata(session, RETRY_KEY_SERIES) or "[]")
 
     if last_sync:
         start_date = datetime.fromisoformat(last_sync)
@@ -531,20 +572,16 @@ async def process_tmdb_changes_sync():
 
     end_date = datetime.now(timezone.utc)
 
-    # calculate total days in the range
+    # Calculate total days in the range.
     total_days = (end_date - start_date).days
 
-    # Split into chunks to avoid hitting the 500-page limit (50,000 items max)
-    # With 100 items per page, 500 pages = 50,000 items.
-    # To be safe, we'll use smaller chunks: 1-day chunks for ranges > 3 days
-    if total_days > 3:
-        chunk_days = 1  # Process 1 day at a time to minimize pagination issues
-        tmdb_logger.info(
-            f"Date range is {total_days} days. "
-            f"Processing in 1-day chunks to avoid API pagination limits."
-        )
-    else:
-        chunk_days = max(1, total_days)  # For 1-3 day ranges, process all at once
+    # TMDB caps changes endpoints at 500 pages x 100 items. Always query one day at
+    # a time so recovery after an outage cannot combine several busy days.
+    chunk_days = 1
+    tmdb_logger.info(
+        f"Date range is {total_days} days. Processing in 1-day chunks "
+        f"to stay under the TMDB pagination limit."
+    )
 
     all_movie_ids = []
     all_series_ids = []
@@ -583,18 +620,20 @@ async def process_tmdb_changes_sync():
 
         current_start = current_end
 
-    # deduplicate IDs (same item might have changed multiple times)
-    movie_ids = list(set(all_movie_ids))
-    series_ids = list(set(all_series_ids))
+    # Deduplicate IDs and fold in failures carried over from the previous run.
+    movie_ids = list(set(all_movie_ids) | set(retry_movies))
+    series_ids = list(set(all_series_ids) | set(retry_series))
 
     tmdb_logger.info(
-        f"Total unique changes: {len(movie_ids)} movies, {len(series_ids)} series."
+        f"Total unique changes: {len(movie_ids)} movies, {len(series_ids)} series "
+        f"({len(retry_movies)} movie / {len(retry_series)} series retries carried over)."
     )
 
     # fetch and update changed movies
+    failed_movies: list[int] = []
     if movie_ids:
         movie_urls = get_movie_urls(movie_ids)
-        await fetch_and_process(
+        failed_movies = await fetch_and_process(
             movie_urls,
             rate_limit=global_config.TMDB_RATE_LIMIT
             * global_config.TMDB_MAX_CONNECTIONS,
@@ -605,9 +644,10 @@ async def process_tmdb_changes_sync():
         )
 
     # fetch and update changed series
+    failed_series: list[int] = []
     if series_ids:
         series_urls = get_series_urls(series_ids)
-        await fetch_and_process(
+        failed_series = await fetch_and_process(
             series_urls,
             rate_limit=global_config.TMDB_RATE_LIMIT
             * global_config.TMDB_MAX_CONNECTIONS,
@@ -617,10 +657,27 @@ async def process_tmdb_changes_sync():
             item_type="series",
         )
 
-    # update the last sync time after successful completion
+    if failed_movies or failed_series:
+        tmdb_logger.warning(
+            f"Changes sync: {len(failed_movies)} movies and {len(failed_series)} series "
+            f"failed and will be retried on the next run."
+        )
+
+    if len(failed_movies) > MAX_RETRY_IDS or len(failed_series) > MAX_RETRY_IDS:
+        tmdb_logger.error(
+            f"Changes sync retry backlog exceeded the {MAX_RETRY_IDS}-ID limit; "
+            f"the next full sweep must recover the truncated failures."
+        )
+
+    # Advance to the end of the window actually queried and persist retry backlogs in
+    # the same transaction.
     with db() as session:
+        set_metadata(session, "last_changes_sync", end_date.isoformat())
         set_metadata(
-            session, "last_changes_sync", datetime.now(timezone.utc).isoformat()
+            session, RETRY_KEY_MOVIES, json.dumps(failed_movies[:MAX_RETRY_IDS])
+        )
+        set_metadata(
+            session, RETRY_KEY_SERIES, json.dumps(failed_series[:MAX_RETRY_IDS])
         )
         session.commit()
     tmdb_logger.info("Changes sync metadata timestamp updated.")

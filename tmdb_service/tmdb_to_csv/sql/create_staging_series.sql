@@ -274,3 +274,64 @@ CREATE TABLE IF NOT EXISTS staging_series(
     next_episode_to_air_id bigint
 );
 
+-- Foreign keys are added after all tables exist so the promoted schema matches the
+-- ORM-created schema and bulk title deletion removes dependent rows. The two episode
+-- references are deferred because the series CSV is loaded before the episode CSVs in
+-- the full-sweep transaction.
+ALTER TABLE staging_series
+    ADD FOREIGN KEY (last_episode_to_air_id)
+    REFERENCES staging_series_last_episode_to_air(id)
+    DEFERRABLE INITIALLY DEFERRED,
+    ADD FOREIGN KEY (next_episode_to_air_id)
+    REFERENCES staging_series_next_episode_to_air(id)
+    DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE staging_series_created_by_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (created_by_id)
+    REFERENCES staging_series_created_by(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_genres_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (genre_id) REFERENCES staging_series_genres(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_networks_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (network_id)
+    REFERENCES staging_series_networks(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_companies_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (company_id)
+    REFERENCES staging_series_production_companies(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_countries_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (country_id)
+    REFERENCES staging_series_production_countries(iso_3166_1) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_seasons
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_languages_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (language_id)
+    REFERENCES staging_series_spoken_languages(iso_639_1) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_alternative_titles
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_cast_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (cast_id)
+    REFERENCES staging_series_cast_members(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_external_ids
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_keywords_assoc
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (id) REFERENCES staging_series_keywords(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_series_videos
+    ADD FOREIGN KEY (series_id) REFERENCES staging_series(id) ON DELETE CASCADE;

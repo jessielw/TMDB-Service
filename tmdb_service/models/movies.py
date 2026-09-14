@@ -36,8 +36,12 @@ class MovieCollections(Base):
 movie_genres_assoc = Table(
     "movie_genres_assoc",
     Base.metadata,
-    Column("movie_id", ForeignKey("movie.id"), primary_key=True),
-    Column("genre_id", ForeignKey("movie_genres.id"), primary_key=True),
+    Column("movie_id", ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "genre_id",
+        ForeignKey("movie_genres.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -56,8 +60,12 @@ class MovieGenres(Base):
 movie_companies_assoc = Table(
     "movie_companies_assoc",
     Base.metadata,
-    Column("movie_id", ForeignKey("movie.id"), primary_key=True),
-    Column("company_id", ForeignKey("movie_production_companies.id"), primary_key=True),
+    Column("movie_id", ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "company_id",
+        ForeignKey("movie_production_companies.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -81,10 +89,10 @@ class MovieProductionCompanies(Base):
 movie_countries_assoc = Table(
     "movie_countries_assoc",
     Base.metadata,
-    Column("movie_id", ForeignKey("movie.id"), primary_key=True),
+    Column("movie_id", ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True),
     Column(
         "country_id",
-        ForeignKey("movie_production_countries.iso_3166_1"),
+        ForeignKey("movie_production_countries.iso_3166_1", ondelete="CASCADE"),
         primary_key=True,
     ),
 )
@@ -108,9 +116,11 @@ class MovieProductionCountries(Base):
 movie_languages_assoc = Table(
     "movie_languages_assoc",
     Base.metadata,
-    Column("movie_id", ForeignKey("movie.id"), primary_key=True),
+    Column("movie_id", ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True),
     Column(
-        "language_id", ForeignKey("movie_spoken_languages.iso_639_1"), primary_key=True
+        "language_id",
+        ForeignKey("movie_spoken_languages.iso_639_1", ondelete="CASCADE"),
+        primary_key=True,
     ),
 )
 
@@ -142,7 +152,9 @@ class MovieAlternativeTitles(Base):
     type: Mapped[str | None] = mapped_column(default=None)
 
     # relationships
-    movie_id: Mapped[int | None] = mapped_column(ForeignKey("movie.id"), default=None)
+    movie_id: Mapped[int | None] = mapped_column(
+        ForeignKey("movie.id", ondelete="CASCADE"), default=None
+    )
     movie: Mapped["Movie | None"] = relationship(
         back_populates="alternative_titles", default=None, repr=False
     )
@@ -151,8 +163,12 @@ class MovieAlternativeTitles(Base):
 movie_cast_assoc = Table(
     "movie_cast_assoc",
     Base.metadata,
-    Column("movie_id", ForeignKey("movie.id"), primary_key=True),
-    Column("cast_id", ForeignKey("movie_cast_members.id"), primary_key=True),
+    Column("movie_id", ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "cast_id",
+        ForeignKey("movie_cast_members.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -183,7 +199,9 @@ class MovieCastMembers(Base):
 class MovieExternalIDs(Base):
     __tablename__ = "movie_external_ids"
 
-    movie_id: Mapped[int] = mapped_column(ForeignKey("movie.id"), primary_key=True)
+    movie_id: Mapped[int] = mapped_column(
+        ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True
+    )
     imdb_id: Mapped[str | None] = mapped_column(String(255), default=None)
     wikidata_id: Mapped[str | None] = mapped_column(String(255), default=None)
     facebook_id: Mapped[str | None] = mapped_column(String(255), default=None)
@@ -199,8 +217,8 @@ class MovieExternalIDs(Base):
 movie_keywords_assoc = Table(
     "movie_keywords_assoc",
     Base.metadata,
-    Column("movie_id", ForeignKey("movie.id"), primary_key=True),
-    Column("id", ForeignKey("movie_keywords.id"), primary_key=True),
+    Column("movie_id", ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True),
+    Column("id", ForeignKey("movie_keywords.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
@@ -229,7 +247,9 @@ class MovieReleaseDates(Base):
     release_date: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     type: Mapped[int | None] = mapped_column(default=None)
     note: Mapped[str | None] = mapped_column(default=None)
-    movie_id: Mapped[int | None] = mapped_column(ForeignKey("movie.id"), default=None)
+    movie_id: Mapped[int | None] = mapped_column(
+        ForeignKey("movie.id", ondelete="CASCADE"), default=None
+    )
 
     movie: Mapped["Movie"] = relationship(
         back_populates="release_dates", default=None, repr=False
@@ -252,7 +272,7 @@ class MovieVideos(Base):
 
     # relationships
     movie_id: Mapped[int] = mapped_column(
-        ForeignKey("movie.id"), init=False, nullable=True
+        ForeignKey("movie.id", ondelete="CASCADE"), init=False, nullable=True
     )
     movie: Mapped["Movie"] = relationship(
         back_populates="videos", init=False, repr=False

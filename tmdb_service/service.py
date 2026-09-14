@@ -116,7 +116,7 @@ class TMDBService:
         for _ in range(self.num_workers):
             self.task_queue.put_nowait((None, None, None))
 
-    async def full_sweep(self, first_ingestion: bool) -> None:
+    async def full_sweep(self, first_ingestion: bool = False) -> None:
         tmdb_logger.info("Running scheduled full sweep...")
         try:
             await update_media_release_webhook_async(

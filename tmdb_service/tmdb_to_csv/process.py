@@ -28,6 +28,8 @@ from tmdb_service.tmdb_to_csv.utils import (
     yield_ids,
 )
 
+MAX_FETCH_FAILURE_RATE = 0.01
+
 
 def generate_csvs_dir() -> Path:
     """Generates CSV working directory"""
@@ -102,81 +104,94 @@ def check_safe_to_promote(first_ingestion: bool, engine: Engine, sql_dir: Path):
         # drop old tables
         drop_old_tables(engine, sql_dir)
     else:
-        tmdb_logger.error(
-            "Aborting promotion and cleanup due to row count check failure."
+        raise RuntimeError(
+            "Aborting promotion: staging row count is more than 50% below production. "
+            "Re-run with --force / first_ingestion=True if this drop is expected."
         )
 
 
 async def generate_csvs(first_ingestion: bool):
     csvs_path = generate_csvs_dir()
-    all_csvs = {**get_movie_csvs(csvs_path), **get_series_csvs(csvs_path)}
-    all_fieldnames = {**MOVIE_FIELDNAMES, **SERIES_FIELDNAMES}
-    files, writers = open_csv_writers(all_csvs, all_fieldnames)
-    dedup_sets = get_movie_dedup_sets() | get_series_dedup_sets()
+    files = {}
+    engine = None
+    try:
+        all_csvs = {**get_movie_csvs(csvs_path), **get_series_csvs(csvs_path)}
+        all_fieldnames = {**MOVIE_FIELDNAMES, **SERIES_FIELDNAMES}
+        files, writers = open_csv_writers(all_csvs, all_fieldnames)
+        dedup_sets = get_movie_dedup_sets() | get_series_dedup_sets()
 
-    tmdb_logger.info("Downloading TMDB ID datasets to generate CSV files.")
-    movie_ids_path, series_ids_path = await download_tmdb_ids(
-        Path(global_config.temp_working_dir)
-    )
-    tmdb_logger.info("Datasets downloaded, processing.")
+        tmdb_logger.info("Downloading TMDB ID datasets to generate CSV files.")
+        movie_ids_path, series_ids_path = await download_tmdb_ids(
+            Path(global_config.temp_working_dir)
+        )
+        tmdb_logger.info("Datasets downloaded, processing.")
 
-    # get tmdb headers
-    headers = get_tmdb_api_headers()
+        headers = get_tmdb_api_headers()
 
-    # count total IDs for progress
-    with open(movie_ids_path) as mf:
-        total_movie_ids = sum(1 for _ in mf)
-    with open(series_ids_path) as tf:
-        total_series_ids = sum(1 for _ in tf)
+        with open(movie_ids_path) as mf:
+            total_movie_ids = sum(1 for _ in mf)
+        with open(series_ids_path) as tf:
+            total_series_ids = sum(1 for _ in tf)
 
-    # counters
-    processed_movies = 0
-    processed_series = 0
+        processed_movies = 0
+        processed_series = 0
+        fetch_failures = 0
 
-    tmdb_logger.info(
-        f"Getting {total_movie_ids} movies data from TMDB and saving to CSV files."
-    )
-    for movie_id_chunk in yield_ids(movie_ids_path, filter_adult=True, chunk_size=500):
-        await process_movies(movie_id_chunk, writers, headers, dedup_sets)
-        processed_movies += len(movie_id_chunk)
-        tmdb_logger.info(f"Processed {processed_movies}/{total_movie_ids} movies.")
+        tmdb_logger.info(
+            f"Getting {total_movie_ids} movies data from TMDB and saving to CSV files."
+        )
+        for movie_id_chunk in yield_ids(
+            movie_ids_path, filter_adult=True, chunk_size=500
+        ):
+            fetch_failures += await process_movies(
+                movie_id_chunk, writers, headers, dedup_sets
+            )
+            processed_movies += len(movie_id_chunk)
+            tmdb_logger.info(f"Processed {processed_movies}/{total_movie_ids} movies.")
 
-    tmdb_logger.info(
-        f"Getting {total_movie_ids} series data from TMDB and saving to CSV files."
-    )
-    for series_id_chunk in yield_ids(
-        series_ids_path, filter_adult=True, chunk_size=500
-    ):
-        await process_series(series_id_chunk, writers, headers, dedup_sets)
-        processed_series += len(series_id_chunk)
-        tmdb_logger.info(f"Processed {processed_series}/{total_series_ids} series.")
+        tmdb_logger.info(
+            f"Getting {total_series_ids} series data from TMDB and saving to CSV files."
+        )
+        for series_id_chunk in yield_ids(
+            series_ids_path, filter_adult=True, chunk_size=500
+        ):
+            fetch_failures += await process_series(
+                series_id_chunk, writers, headers, dedup_sets
+            )
+            processed_series += len(series_id_chunk)
+            tmdb_logger.info(f"Processed {processed_series}/{total_series_ids} series.")
 
-    tmdb_logger.debug("Closing all CSV files.")
-    close_csv_files(files)
-    tmdb_logger.debug("CSV files closed.")
+        tmdb_logger.debug("Closing all CSV files.")
+        close_csv_files(files)
+        tmdb_logger.debug("CSV files closed.")
 
-    # start sqlalchemy engine
-    engine = create_engine(global_config.DATABASE_URI)
+        total_ids = total_movie_ids + total_series_ids
+        if total_ids and fetch_failures / total_ids > MAX_FETCH_FAILURE_RATE:
+            raise RuntimeError(
+                f"Aborting full sweep: {fetch_failures}/{total_ids} fetches failed "
+                f"({fetch_failures / total_ids:.2%}). Promoting would delete live titles."
+            )
 
-    # sql directory
-    sql_dir = Path(__file__).parent / "sql"
+        engine = create_engine(global_config.DATABASE_URI)
+        sql_dir = Path(__file__).parent / "sql"
 
-    # create staging tables
-    create_staging_tables(engine, sql_dir)
+        create_staging_tables(engine, sql_dir)
+        load_staging_tables(engine, csvs_path)
+        check_safe_to_promote(first_ingestion, engine, sql_dir)
 
-    # fill staging tables with data
-    load_staging_tables(engine, csvs_path)
-
-    # check to ensure it's safe to promote staging to production and drop old tables
-    check_safe_to_promote(first_ingestion, engine, sql_dir)
-
-    # apply unaccent
-    if global_config.ENABLE_UNACCENT:
-        tmdb_logger.info("Adding extension unaccent.")
-        with engine.begin() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent;"))
-
-    # clean up
-    tmdb_logger.debug(f"Removing path {csvs_path}.")
-    shutil.rmtree(csvs_path)
-    tmdb_logger.debug(f"Path {csvs_path} removed.")
+        if global_config.ENABLE_UNACCENT:
+            tmdb_logger.info("Adding extension unaccent.")
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent;"))
+    finally:
+        try:
+            close_csv_files(files)
+        finally:
+            try:
+                if engine is not None:
+                    engine.dispose()
+            finally:
+                if csvs_path.exists():
+                    tmdb_logger.debug(f"Removing path {csvs_path}.")
+                    shutil.rmtree(csvs_path)
+                    tmdb_logger.debug(f"Path {csvs_path} removed.")

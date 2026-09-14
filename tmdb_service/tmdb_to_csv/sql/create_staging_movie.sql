@@ -202,3 +202,48 @@ CREATE TABLE staging_movie(
     belongs_to_collection_id bigint
 );
 
+-- Foreign keys are added after all tables exist so the promoted schema matches the
+-- ORM-created schema and bulk title deletion removes dependent rows.
+ALTER TABLE staging_movie
+    ADD FOREIGN KEY (belongs_to_collection_id)
+    REFERENCES staging_movie_collections(id);
+
+ALTER TABLE staging_movie_genres_assoc
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (genre_id) REFERENCES staging_movie_genres(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_companies_assoc
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (company_id)
+    REFERENCES staging_movie_production_companies(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_countries_assoc
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (country_id)
+    REFERENCES staging_movie_production_countries(iso_3166_1) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_languages_assoc
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (language_id)
+    REFERENCES staging_movie_spoken_languages(iso_639_1) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_alternative_titles
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_cast_assoc
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (cast_id)
+    REFERENCES staging_movie_cast_members(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_external_ids
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_keywords_assoc
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD FOREIGN KEY (id) REFERENCES staging_movie_keywords(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_release_dates
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
+
+ALTER TABLE staging_movie_videos
+    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;

@@ -16,8 +16,12 @@ from tmdb_service.globals import Base
 series_created_by_assoc = Table(
     "series_created_by_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
-    Column("created_by_id", ForeignKey("series_created_by.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "created_by_id",
+        ForeignKey("series_created_by.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -43,8 +47,12 @@ class SeriesCreatedBy(Base):
 series_genres_assoc = Table(
     "series_genres_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
-    Column("genre_id", ForeignKey("series_genres.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "genre_id",
+        ForeignKey("series_genres.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -122,8 +130,12 @@ class SeriesNextEpisodeToAir(Base):
 series_networks_assoc = Table(
     "series_networks_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
-    Column("network_id", ForeignKey("series_networks.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "network_id",
+        ForeignKey("series_networks.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -147,9 +159,11 @@ class SeriesNetworks(Base):
 series_companies_assoc = Table(
     "series_companies_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
     Column(
-        "company_id", ForeignKey("series_production_companies.id"), primary_key=True
+        "company_id",
+        ForeignKey("series_production_companies.id", ondelete="CASCADE"),
+        primary_key=True,
     ),
 )
 
@@ -174,10 +188,10 @@ class SeriesProductionCompanies(Base):
 series_countries_assoc = Table(
     "series_countries_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
     Column(
         "country_id",
-        ForeignKey("series_production_countries.iso_3166_1"),
+        ForeignKey("series_production_countries.iso_3166_1", ondelete="CASCADE"),
         primary_key=True,
     ),
 )
@@ -211,7 +225,9 @@ class SeriesSeasons(Base):
     vote_average: Mapped[float | None] = mapped_column(default=None)
 
     # many-to-one relationship
-    series_id: Mapped[int | None] = mapped_column(ForeignKey("series.id"), init=False)
+    series_id: Mapped[int | None] = mapped_column(
+        ForeignKey("series.id", ondelete="CASCADE"), init=False
+    )
     series: Mapped["Series"] = relationship(
         back_populates="seasons", init=False, repr=False
     )
@@ -220,9 +236,11 @@ class SeriesSeasons(Base):
 series_languages_assoc = Table(
     "series_languages_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
     Column(
-        "language_id", ForeignKey("series_spoken_languages.iso_639_1"), primary_key=True
+        "language_id",
+        ForeignKey("series_spoken_languages.iso_639_1", ondelete="CASCADE"),
+        primary_key=True,
     ),
 )
 
@@ -255,7 +273,7 @@ class SeriesAlternativeTitles(Base):
 
     # relationships
     series_id: Mapped[int | None] = mapped_column(
-        ForeignKey("series.id"),
+        ForeignKey("series.id", ondelete="CASCADE"),
         default=None,
     )
     series: Mapped["Series | None"] = relationship(
@@ -266,8 +284,12 @@ class SeriesAlternativeTitles(Base):
 series_cast_assoc = Table(
     "series_cast_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
-    Column("cast_id", ForeignKey("series_cast_members.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "cast_id",
+        ForeignKey("series_cast_members.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -298,7 +320,9 @@ class SeriesCastMembers(Base):
 class SeriesExternalIDs(Base):
     __tablename__ = "series_external_ids"
 
-    series_id: Mapped[int] = mapped_column(ForeignKey("series.id"), primary_key=True)
+    series_id: Mapped[int] = mapped_column(
+        ForeignKey("series.id", ondelete="CASCADE"), primary_key=True
+    )
     imdb_id: Mapped[str | None] = mapped_column(String(255), default=None)
     wikidata_id: Mapped[str | None] = mapped_column(String(255), default=None)
     facebook_id: Mapped[str | None] = mapped_column(String(255), default=None)
@@ -314,8 +338,10 @@ class SeriesExternalIDs(Base):
 series_keywords_assoc = Table(
     "series_keywords_assoc",
     Base.metadata,
-    Column("series_id", ForeignKey("series.id"), primary_key=True),
-    Column("id", ForeignKey("series_keywords.id"), primary_key=True),
+    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "id", ForeignKey("series_keywords.id", ondelete="CASCADE"), primary_key=True
+    ),
 )
 
 
@@ -351,7 +377,7 @@ class SeriesVideos(Base):
 
     # relationships
     series_id: Mapped[int] = mapped_column(
-        ForeignKey("series.id"), init=False, nullable=True
+        ForeignKey("series.id", ondelete="CASCADE"), init=False, nullable=True
     )
     series: Mapped["Series"] = relationship(
         back_populates="videos", init=False, repr=False

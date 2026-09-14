@@ -1,4 +1,6 @@
+import asyncio
 import select
+import threading
 from typing import Any
 
 import psycopg2
@@ -8,8 +10,6 @@ from tmdb_service.job_queue import get_conn
 from tmdb_service.service import TMDBService
 
 JOB_QUEUE_TABLE_SQL = """\
-DROP TABLE IF EXISTS job_queue;
-
 CREATE TABLE IF NOT EXISTS job_queue (
     id SERIAL PRIMARY KEY,
     job_type TEXT NOT NULL,
@@ -64,7 +64,15 @@ def main() -> None:
     tmdb_logger.info("Starting TMDB Worker Service.")
     service = TMDBService()
     service.apply_unaccent()
+
+    # aiocron binds jobs to the current event loop when they are scheduled. Run that
+    # loop in a dedicated thread while this thread blocks waiting for database jobs.
+    cron_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(cron_loop)
     service.init_cron_jobs()
+    cron_thread = threading.Thread(target=cron_loop.run_forever, daemon=True)
+    cron_thread.start()
+
     conn = get_conn()
     init_job_queue_table(conn)
     conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
@@ -93,6 +101,9 @@ def main() -> None:
                     process_job(job_type, payload, service)
     except KeyboardInterrupt:
         tmdb_logger.info("Shutting down TMDB Worker Service.")
+        cron_loop.call_soon_threadsafe(cron_loop.stop)
+        cron_thread.join(timeout=5)
+        cron_loop.close()
         service.shutdown()
 
 
