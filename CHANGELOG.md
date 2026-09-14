@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Durable job dispatch.
+
+### Changed
+
+- Global job collisions are dropped rather than deferred.
+
+### Fixed
+
+- Service not running at all in some scenarios.
+- Cron-fired full sweep dies immediately on a type error.
+- Rows silently could go stale.
+- The changes-sync watermark was advancing over failed items.
+- Chunking was disabled on some high volume points.
+- A full sweep that refuses to promote still reported success.
+- A transient fetch failure during a full sweep deletes the movie.
+- The job queue is dropped on every worker start.
+- The full sweep leaked its working directory on failure.
+- Deleting a movie behaved differently before and after a full sweep.
+-
+
 ## [1.1.0] - 2025-11-26
 
 ### Added
