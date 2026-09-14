@@ -1,0 +1,114 @@
+name: Build and publish container image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch or Git tag to build
+        required: true
+        default: main
+        type: string
+      image_tag:
+        description: Container tag in X.Y.Z format
+        required: true
+        type: string
+  release:
+    types: [published]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and push image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve source and image tag
+        id: config
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_SOURCE_REF: ${{ inputs.source_ref }}
+          MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            source_ref="main"
+            image_tag="$RELEASE_TAG"
+            publish_latest="true"
+          else
+            source_ref="$MANUAL_SOURCE_REF"
+            image_tag="$MANUAL_IMAGE_TAG"
+            publish_latest="false"
+          fi
+
+          if ! git check-ref-format --branch "$source_ref" > /dev/null 2>&1; then
+            echo "Source ref must be a valid branch or Git tag." >&2
+            exit 1
+          fi
+
+          if [[ ! "$image_tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Image tag must use X.Y.Z format (for example, 1.0.0)." >&2
+            exit 1
+          fi
+
+          {
+            echo "source_ref=$source_ref"
+            echo "image_tag=$image_tag"
+            echo "publish_latest=$publish_latest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.config.outputs.source_ref }}
+
+      - name: Record source commit
+        id: source
+        shell: bash
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.config.outputs.image_tag }}
+            type=raw,value=latest,enable=${{ steps.config.outputs.publish_latest }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.config.outputs.image_tag }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.commit }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

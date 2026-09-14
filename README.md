@@ -468,6 +468,18 @@ docker buildx build \
 docker build -t tmdb-service:local .
 ```
 
+### Automated Image Publishing
+
+The **Build and publish container image** GitHub Actions workflow publishes
+multi-platform images to `ghcr.io/jessielw/tmdb-service`.
+
+- To build manually, open **Actions**, select the workflow, choose **Run workflow**,
+  and enter the branch or Git tag to build plus an image tag in `X.Y.Z` format.
+  Manual builds publish only the requested image tag.
+- To publish a release, create a GitHub release whose tag uses `X.Y.Z` format (for
+  example, `1.2.0`). Release builds always use the current `main` branch and publish
+  both the release tag and `latest`.
+
 ---
 
 ## Using with Flask and Flask-SQLAlchemy
