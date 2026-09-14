@@ -9,7 +9,7 @@ on:
         default: main
         type: string
       image_tag:
-        description: Container tag in X.Y.Z format
+        description: Container tag in X.Y.Z format or latest
         required: true
         type: string
   release:
@@ -55,8 +55,13 @@ jobs:
             exit 1
           fi
 
-          if [[ ! "$image_tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Image tag must use X.Y.Z format (for example, 1.0.0)." >&2
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            if [[ ! "$image_tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Release tag must use X.Y.Z format (for example, 1.0.0)." >&2
+              exit 1
+            fi
+          elif [[ ! "$image_tag" =~ ^([0-9]+\.[0-9]+\.[0-9]+|latest)$ ]]; then
+            echo "Image tag must use X.Y.Z format (for example, 1.0.0) or be latest." >&2
             exit 1
           fi
 
