@@ -160,18 +160,6 @@ class MovieAlternativeTitles(Base):
     )
 
 
-movie_cast_assoc = Table(
-    "movie_cast_assoc",
-    Base.metadata,
-    Column("movie_id", ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True),
-    Column(
-        "cast_id",
-        ForeignKey("movie_cast_members.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-)
-
-
 class MovieCastMembers(Base):
     __tablename__ = "movie_cast_members"
 
@@ -184,15 +172,39 @@ class MovieCastMembers(Base):
     known_for_department: Mapped[str | None] = mapped_column(String(255), default=None)
     popularity: Mapped[float | None] = mapped_column(default=None)
     profile_path: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    # relationships
+    movie_roles: Mapped[list["MovieCastRole"]] = relationship(
+        back_populates="cast_member", init=False, default_factory=list, repr=False
+    )
+    movies: Mapped[list["Movie"]] = relationship(
+        secondary="movie_cast_assoc",
+        viewonly=True,
+        init=False,
+        default_factory=list,
+        repr=False,
+    )
+
+
+class MovieCastRole(Base):
+    """A person's role in one movie."""
+
+    __tablename__ = "movie_cast_assoc"
+
+    movie_id: Mapped[int] = mapped_column(
+        ForeignKey("movie.id", ondelete="CASCADE"), primary_key=True
+    )
+    cast_id: Mapped[int] = mapped_column(
+        ForeignKey("movie_cast_members.id", ondelete="CASCADE"), primary_key=True
+    )
     character: Mapped[str | None] = mapped_column(default=None)
     cast_order: Mapped[int | None] = mapped_column(SmallInteger, default=None)
 
-    # relationships
-    movies: Mapped[list["Movie"]] = relationship(
-        secondary=movie_cast_assoc,
-        back_populates="cast_members",
-        init=False,
-        repr=False,
+    movie: Mapped["Movie"] = relationship(
+        back_populates="cast_roles", init=False, repr=False
+    )
+    cast_member: Mapped[MovieCastMembers] = relationship(
+        back_populates="movie_roles", init=False, repr=False
     )
 
 
@@ -327,9 +339,13 @@ class Movie(Base):
     alternative_titles: Mapped[list[MovieAlternativeTitles]] = relationship(
         back_populates="movie", cascade="all, delete-orphan", default_factory=list
     )
+    cast_roles: Mapped[list[MovieCastRole]] = relationship(
+        back_populates="movie", cascade="all, delete-orphan", default_factory=list
+    )
     cast_members: Mapped[list[MovieCastMembers]] = relationship(
-        secondary=movie_cast_assoc,
-        back_populates="movies",
+        secondary="movie_cast_assoc",
+        viewonly=True,
+        init=False,
         default_factory=list,
     )
     external_ids: Mapped[MovieExternalIDs | None] = relationship(

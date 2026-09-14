@@ -17,6 +17,7 @@ from tmdb_service.globals import db, global_config, tmdb_logger
 from tmdb_service.models.movies import Movie
 from tmdb_service.models.series import Series
 from tmdb_service.models.service_metadata import get_metadata, set_metadata
+from tmdb_service.notifications import update_media_release_webhook_async
 from tmdb_service.tmdb_task_utils import (
     delete_items_from_db,
     extract_id_from_tmdb_url,
@@ -396,10 +397,9 @@ async def prune_deleted_records():
         tmdb_logger.info("Downloading latest TMDB ID export files...")
         movie_ids_path, series_ids_path = await download_tmdb_ids(temp_dir)
         if not movie_ids_path or not series_ids_path:
-            tmdb_logger.error(
-                "Failed to download one or both ID files. Aborting prune."
+            raise RuntimeError(
+                "Failed to download one or both ID files; aborting prune."
             )
-            return
 
         # 2. Load all IDs from TMDB export files into sets
         tmdb_logger.info("Loading IDs from TMDB export files...")
@@ -479,7 +479,7 @@ async def prune_deleted_records():
                     tmdb_logger.info(f"Deleted {result.rowcount} movies.")
             except Exception as e:
                 tmdb_logger.error(f"Error deleting movies: {e}")
-                # Optionally rollback or log specific IDs that failed
+                raise
 
         if series_ids_to_delete:
             tmdb_logger.info("Deleting series...")
@@ -492,10 +492,12 @@ async def prune_deleted_records():
                     tmdb_logger.info(f"Deleted {result.rowcount} series.")
             except Exception as e:
                 tmdb_logger.error(f"Error deleting series: {e}")
+                raise
 
     except Exception as e:
         tmdb_logger.error(f"Error during prune operation: {e}")
         tmdb_logger.error(traceback.format_exc())
+        raise
     finally:
         # Clean up temp directory
         shutil.rmtree(temp_dir)
@@ -560,9 +562,14 @@ async def process_tmdb_changes_sync():
         # ensure we don't query more than 14 days (TMDB API limit)
         earliest_allowed = datetime.now(timezone.utc) - timedelta(days=14)
         if start_date < earliest_allowed:
-            tmdb_logger.warning(
+            warning = (
                 f"Last sync was {start_date}, more than 14 days ago. "
-                f"Using 14-day look back (TMDB API limit)."
+                "Using the 14-day lookback limit; a full sweep is required to fill "
+                "the older gap."
+            )
+            tmdb_logger.warning(warning)
+            await update_media_release_webhook_async(
+                f"**TMDB Service data gap:** {warning}"
             )
             start_date = earliest_allowed
     else:

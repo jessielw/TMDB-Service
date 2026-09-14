@@ -281,18 +281,6 @@ class SeriesAlternativeTitles(Base):
     )
 
 
-series_cast_assoc = Table(
-    "series_cast_assoc",
-    Base.metadata,
-    Column("series_id", ForeignKey("series.id", ondelete="CASCADE"), primary_key=True),
-    Column(
-        "cast_id",
-        ForeignKey("series_cast_members.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-)
-
-
 class SeriesCastMembers(Base):
     __tablename__ = "series_cast_members"
 
@@ -305,15 +293,39 @@ class SeriesCastMembers(Base):
     known_for_department: Mapped[str | None] = mapped_column(String(255), default=None)
     popularity: Mapped[float | None] = mapped_column(default=None)
     profile_path: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    # relationships
+    series_roles: Mapped[list["SeriesCastRole"]] = relationship(
+        back_populates="cast_member", init=False, default_factory=list, repr=False
+    )
+    series: Mapped[list["Series"]] = relationship(
+        secondary="series_cast_assoc",
+        viewonly=True,
+        init=False,
+        default_factory=list,
+        repr=False,
+    )
+
+
+class SeriesCastRole(Base):
+    """A person's role in one series."""
+
+    __tablename__ = "series_cast_assoc"
+
+    series_id: Mapped[int] = mapped_column(
+        ForeignKey("series.id", ondelete="CASCADE"), primary_key=True
+    )
+    cast_id: Mapped[int] = mapped_column(
+        ForeignKey("series_cast_members.id", ondelete="CASCADE"), primary_key=True
+    )
     character: Mapped[str | None] = mapped_column(default=None)
     cast_order: Mapped[int | None] = mapped_column(SmallInteger, default=None)
 
-    # relationships
-    series: Mapped[list["Series"]] = relationship(
-        secondary=series_cast_assoc,
-        back_populates="cast_members",
-        init=False,
-        repr=False,
+    series: Mapped["Series"] = relationship(
+        back_populates="cast_roles", init=False, repr=False
+    )
+    cast_member: Mapped[SeriesCastMembers] = relationship(
+        back_populates="series_roles", init=False, repr=False
     )
 
 
@@ -453,9 +465,13 @@ class Series(Base):
     alternative_titles: Mapped[list[SeriesAlternativeTitles]] = relationship(
         back_populates="series", cascade="all, delete-orphan", default_factory=list
     )
+    cast_roles: Mapped[list[SeriesCastRole]] = relationship(
+        back_populates="series", cascade="all, delete-orphan", default_factory=list
+    )
     cast_members: Mapped[list[SeriesCastMembers]] = relationship(
-        secondary=series_cast_assoc,
-        back_populates="series",
+        secondary="series_cast_assoc",
+        viewonly=True,
+        init=False,
         default_factory=list,
     )
     external_ids: Mapped[SeriesExternalIDs | None] = relationship(

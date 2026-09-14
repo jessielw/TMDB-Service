@@ -185,9 +185,7 @@ CREATE TABLE IF NOT EXISTS staging_series_cast_members(
     original_name varchar(255),
     known_for_department varchar(255),
     popularity float,
-    profile_path varchar(255),
-    character text,
-    cast_order smallint
+    profile_path varchar(255)
 );
 
 -- Cast Association
@@ -196,6 +194,8 @@ DROP TABLE IF EXISTS staging_series_cast_assoc CASCADE;
 CREATE TABLE IF NOT EXISTS staging_series_cast_assoc(
     series_id bigint,
     cast_id bigint,
+    character text,
+    cast_order smallint,
     PRIMARY KEY (series_id, cast_id)
 );
 

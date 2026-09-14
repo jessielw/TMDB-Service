@@ -105,6 +105,7 @@ API_KEY=your-secret-api-key-here
 **CRON_MISSING_ONLY** - Backfill missing IDs
 
 - Finds IDs in TMDB exports that aren't in your database
+- Insert-only: existing movie and series rows are not refreshed by this task
 - Useful for catching gaps
 - Can be disabled if using daily changes sync
 
@@ -122,6 +123,17 @@ Set any CRON variable to one of: `""`, `"false"`, `"off"`, `"disable"`, `"disabl
 CRON_PRUNE='false'
 CRON_MISSING_ONLY='off'
 ```
+
+#### Data Freshness and Recovery
+
+- TMDB's changes feeds do not track changes to `popularity`, `vote_average`, or
+  `vote_count`. Those fields refresh only during a full sweep and can therefore be as
+  old as your `CRON_FULL_SWEEP` interval.
+- TMDB permits at most a 14-day changes lookback. If the last successful changes sync
+  is older than that, the service logs and sends a webhook warning, then covers the
+  available 14 days. Run a forced full sweep to fill the older gap.
+- Missing-ID sweeps only insert absent titles; use changes sync or a full sweep to
+  refresh titles already in the database.
 
 ---
 
@@ -263,14 +275,19 @@ curl -X POST \
   http://localhost:8000/jobs/test-webhook
 ```
 
-### 🔒 Concurrent Request Protection
+### 🔒 Durable Job Queue
 
-The API automatically prevents duplicate job execution:
+Jobs submitted by cron, the API, and the CLI use the same PostgreSQL-backed queue:
 
-- Multiple requests for the same job type are safely queued
-- Only one instance of each global job runs at a time
-- Duplicate requests are logged and rejected gracefully
-- No risk of database conflicts or wasted resources
+- Queued jobs survive worker restarts.
+- Jobs interrupted while running are returned to the queue when the worker starts.
+- Jobs that collide with an active global or title task remain queued until capacity is
+  available.
+- Successfully completed jobs are removed. Failed jobs remain in `job_queue` with
+  `status = 'failed'`, an attempt count, and `last_error` for operator inspection.
+
+Direct callers of the in-process global-task dispatcher still receive `False` when the
+service is busy; when webhooks are enabled, that rejection sends a notification.
 
 ---
 
@@ -456,6 +473,13 @@ docker build -t tmdb-service:local .
 ## Using with Flask and Flask-SQLAlchemy
 
 For convenience I've added **movies.py** and **series.py** models already converted for **Flask-SQLAlchemy** in `examples/flask_sqlalchemy_models/*.py`. You'll need to update `from your_app_service import db` import from your application. However, follow the guide below explaining how you can do this yourself if needed.
+
+Cast character and order belong to the title-person relationship. Read them through
+`Movie.cast_roles` / `Series.cast_roles`; each role exposes `character`, `cast_order`,
+and `cast_member`. `cast_members` remains as a read-only convenience relationship.
+When upgrading from a schema that stored these fields on cast members, the automatic
+migration preserves the old values as a best effort. Run one forced full sweep to
+reconstruct accurate historical roles for every title.
 
 To integrate TMDB models into your Flask project using **Flask-SQLAlchemy**, the simplest approach is to copy `movies.py` and `series.py` into your project. You’ll need to make a few adjustments for **every model** and **every association table**:
 

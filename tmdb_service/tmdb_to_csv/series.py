@@ -157,10 +157,8 @@ SERIES_FIELDNAMES = {
         "known_for_department",
         "popularity",
         "profile_path",
-        "character",
-        "cast_order",
     ],
-    "series_cast_assoc": ["series_id", "cast_id"],
+    "series_cast_assoc": ["series_id", "cast_id", "character", "cast_order"],
     "series_external_ids": [
         "series_id",
         "imdb_id",
@@ -475,8 +473,6 @@ async def process_series(
                                 ],
                                 "popularity": cast_member["popularity"],
                                 "profile_path": cast_member["profile_path"],
-                                "character": cast_member["character"],
-                                "cast_order": cast_member["order"],
                             }
                         )
                         dedup_sets["series_cast_members"].add(cast_id)
@@ -486,6 +482,8 @@ async def process_series(
                             {
                                 "series_id": data["id"],
                                 "cast_id": cast_member["id"],
+                                "character": cast_member.get("character"),
+                                "cast_order": cast_member.get("order"),
                             }
                         )
                         dedup_sets["series_cast_assoc"].add(assoc_tuple)
@@ -714,14 +712,12 @@ def get_series_copy_commands(base_path: Path) -> list[Any]:
                 "known_for_department",
                 "popularity",
                 "profile_path",
-                "character",
-                "cast_order",
             ],
             f"{base_path}/series_cast_members.csv",
         ),
         (
             "staging_series_cast_assoc",
-            ["series_id", "cast_id"],
+            ["series_id", "cast_id", "character", "cast_order"],
             f"{base_path}/series_cast_assoc.csv",
         ),
         (

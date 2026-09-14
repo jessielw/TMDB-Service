@@ -103,10 +103,8 @@ MOVIE_FIELDNAMES = {
         "known_for_department",
         "popularity",
         "profile_path",
-        "character",
-        "cast_order",
     ],
-    "movie_cast_assoc": ["movie_id", "cast_id"],
+    "movie_cast_assoc": ["movie_id", "cast_id", "character", "cast_order"],
     "movie_keywords": ["id", "name"],
     "movie_keywords_assoc": ["movie_id", "id"],
     "movie_release_dates": [
@@ -332,8 +330,6 @@ async def process_movies(
                                 ),
                                 "popularity": cast_member.get("popularity"),
                                 "profile_path": cast_member.get("profile_path"),
-                                "character": cast_member.get("character"),
-                                "cast_order": cast_member.get("order"),
                             }
                         )
                         dedup_sets["movie_cast_members"].add(cast_id)
@@ -343,6 +339,8 @@ async def process_movies(
                             {
                                 "movie_id": data.get("id"),
                                 "cast_id": cast_member.get("id"),
+                                "character": cast_member.get("character"),
+                                "cast_order": cast_member.get("order"),
                             }
                         )
                         dedup_sets["movie_cast_assoc"].add(assoc_tuple)
@@ -520,14 +518,12 @@ def get_movie_copy_commands(base_path: Path) -> list[Any]:
                 "known_for_department",
                 "popularity",
                 "profile_path",
-                "character",
-                "cast_order",
             ],
             f"{base_path}/movie_cast_members.csv",
         ),
         (
             "staging_movie_cast_assoc",
-            ["movie_id", "cast_id"],
+            ["movie_id", "cast_id", "character", "cast_order"],
             f"{base_path}/movie_cast_assoc.csv",
         ),
         (

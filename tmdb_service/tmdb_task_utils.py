@@ -10,6 +10,7 @@ from tmdb_service.models.movies import (
     Movie,
     MovieAlternativeTitles,
     MovieCastMembers,
+    MovieCastRole,
     MovieCollections,
     MovieExternalIDs,
     MovieGenres,
@@ -24,6 +25,7 @@ from tmdb_service.models.series import (
     Series,
     SeriesAlternativeTitles,
     SeriesCastMembers,
+    SeriesCastRole,
     SeriesCreatedBy,
     SeriesExternalIDs,
     SeriesGenres,
@@ -143,7 +145,7 @@ def insert_movie(movie_data: dict) -> None:
                 movie.production_companies.clear()
                 movie.production_countries.clear()
                 movie.spoken_languages.clear()
-                movie.cast_members.clear()
+                movie.cast_roles.clear()
                 movie.keywords.clear()
             else:
                 movie = Movie(id=movie_id)
@@ -199,26 +201,36 @@ def insert_movie(movie_data: dict) -> None:
             languages = de_dupe_by_key(languages, lambda lang: lang.iso_639_1)
 
             # add cast members
+            cast_data = de_dupe_by_key(
+                movie_data.get("credits", {}).get("cast", []), lambda cm: cm["id"]
+            )
             cast_members = [
                 get_or_create(
                     session,
                     MovieCastMembers,
                     {"id": cm["id"]},
                     {
-                        "gender": cm["gender"],
-                        "cast_id": cm["cast_id"],
-                        "name": cm["name"],
-                        "original_name": cm["original_name"],
-                        "known_for_department": cm["known_for_department"],
-                        "popularity": cm["popularity"],
-                        "profile_path": cm["profile_path"],
-                        "character": cm["character"],
-                        "cast_order": cm["order"],
+                        "adult": cm.get("adult"),
+                        "gender": cm.get("gender"),
+                        "cast_id": cm.get("cast_id"),
+                        "name": cm.get("name"),
+                        "original_name": cm.get("original_name"),
+                        "known_for_department": cm.get("known_for_department"),
+                        "popularity": cm.get("popularity"),
+                        "profile_path": cm.get("profile_path"),
                     },
                 )
-                for cm in movie_data.get("credits", {}).get("cast", [])
+                for cm in cast_data
             ]
-            cast_members = de_dupe_by_key(cast_members, lambda c: c.id)
+            cast_roles = [
+                MovieCastRole(
+                    movie_id=movie_id,
+                    cast_id=cm["id"],
+                    character=cm.get("character"),
+                    cast_order=cm.get("order"),
+                )
+                for cm in cast_data
+            ]
 
             # add keywords
             keywords = [
@@ -342,7 +354,7 @@ def insert_movie(movie_data: dict) -> None:
             movie.production_companies = companies
             movie.production_countries = countries
             movie.spoken_languages = languages
-            movie.cast_members = cast_members
+            movie.cast_roles = cast_roles
             movie.external_ids = ext_ids
             movie.keywords = keywords
             movie.release_dates = release_dates
@@ -371,7 +383,7 @@ def insert_series(series_data: dict) -> None:
                 series.production_companies.clear()
                 series.production_countries.clear()
                 series.spoken_languages.clear()
-                series.cast_members.clear()
+                series.cast_roles.clear()
                 series.keywords.clear()
                 series.networks.clear()
                 series.created_by.clear()
@@ -429,26 +441,36 @@ def insert_series(series_data: dict) -> None:
             languages = de_dupe_by_key(languages, lambda lang: lang.iso_639_1)
 
             # add cast members
+            cast_data = de_dupe_by_key(
+                series_data.get("credits", {}).get("cast", []), lambda cm: cm["id"]
+            )
             cast_members = [
                 get_or_create(
                     session,
                     SeriesCastMembers,
                     {"id": cm["id"]},
                     {
-                        "gender": cm["gender"],
+                        "adult": cm.get("adult"),
+                        "gender": cm.get("gender"),
                         "cast_id": cm.get("cast_id"),
-                        "name": cm["name"],
-                        "original_name": cm["original_name"],
-                        "known_for_department": cm["known_for_department"],
-                        "popularity": cm["popularity"],
-                        "profile_path": cm["profile_path"],
-                        "character": cm["character"],
-                        "cast_order": cm["order"],
+                        "name": cm.get("name"),
+                        "original_name": cm.get("original_name"),
+                        "known_for_department": cm.get("known_for_department"),
+                        "popularity": cm.get("popularity"),
+                        "profile_path": cm.get("profile_path"),
                     },
                 )
-                for cm in series_data.get("credits", {}).get("cast", [])
+                for cm in cast_data
             ]
-            cast_members = de_dupe_by_key(cast_members, lambda c: c.id)
+            cast_roles = [
+                SeriesCastRole(
+                    series_id=series_id,
+                    cast_id=cm["id"],
+                    character=cm.get("character"),
+                    cast_order=cm.get("order"),
+                )
+                for cm in cast_data
+            ]
 
             # add keywords
             keywords = [
@@ -659,7 +681,7 @@ def insert_series(series_data: dict) -> None:
             series.seasons = seasons
             series.spoken_languages = languages
             series.alternative_titles = alt_titles
-            series.cast_members = cast_members
+            series.cast_roles = cast_roles
             series.external_ids = ext_ids
             series.keywords = keywords
             series.videos = videos

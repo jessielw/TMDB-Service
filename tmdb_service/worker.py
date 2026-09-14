@@ -1,69 +1,128 @@
 import asyncio
 import select
 import threading
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import psycopg2
 
 from tmdb_service.globals import tmdb_logger
-from tmdb_service.job_queue import get_conn
+from tmdb_service.job_queue import (
+    claim_next_job,
+    complete_job,
+    fail_job,
+    get_conn,
+    init_job_queue_table,
+    requeue_interrupted_jobs,
+    requeue_job,
+)
 from tmdb_service.service import TMDBService
 
-JOB_QUEUE_TABLE_SQL = """\
-CREATE TABLE IF NOT EXISTS job_queue (
-    id SERIAL PRIMARY KEY,
-    job_type TEXT NOT NULL,
-    payload TEXT,
-    created_at TIMESTAMP DEFAULT now()
-);
 
-CREATE OR REPLACE FUNCTION notify_new_job() RETURNS trigger AS $$
-BEGIN
-    PERFORM pg_notify('new_job', NEW.id::text);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS job_insert_notify ON job_queue;
-CREATE TRIGGER job_insert_notify
-AFTER INSERT ON job_queue
-FOR EACH ROW EXECUTE FUNCTION notify_new_job();"""
-
-
-def process_job(job_type: str, payload: Any, service: TMDBService) -> None:
+def process_job(
+    job_type: str,
+    payload: Any,
+    service: TMDBService,
+    completion_callback: Callable[[Exception | None], None],
+) -> bool:
     """Process jobs using TMDBService."""
     if job_type == "full_sweep":
         force = payload in ("True", "true", True)
-        service.run_global_task_in_thread(service.full_sweep, first_ingestion=force)
+        return service.run_global_task_in_thread(
+            service.full_sweep,
+            first_ingestion=force,
+            completion_callback=completion_callback,
+            notify_on_reject=False,
+        )
     elif job_type == "missing_ids":
-        service.run_global_task_in_thread(service.missing_ids_job)
+        return service.run_global_task_in_thread(
+            service.missing_ids_job,
+            completion_callback=completion_callback,
+            notify_on_reject=False,
+        )
     elif job_type == "prune_deleted":
-        service.run_global_task_in_thread(service.prune_job)
+        return service.run_global_task_in_thread(
+            service.prune_job,
+            completion_callback=completion_callback,
+            notify_on_reject=False,
+        )
     elif job_type == "changes_sync":
-        service.run_global_task_in_thread(service.changes_sync_job)
+        return service.run_global_task_in_thread(
+            service.changes_sync_job,
+            completion_callback=completion_callback,
+            notify_on_reject=False,
+        )
     elif job_type == "create_tables":
-        service.run_single_task_in_thread(service.create_db_tables)
+        return service.run_single_task_in_thread(
+            service.create_db_tables, completion_callback=completion_callback
+        )
     elif job_type == "add_movie":
-        service.run_single_task_in_thread(service.add_movie_id, int(payload))
+        return service.run_single_task_in_thread(
+            service.add_movie_id,
+            int(payload),
+            completion_callback=completion_callback,
+        )
     elif job_type == "add_series":
-        service.run_single_task_in_thread(service.add_series_id, int(payload))
+        return service.run_single_task_in_thread(
+            service.add_series_id,
+            int(payload),
+            completion_callback=completion_callback,
+        )
     elif job_type == "test_webhook":
-        service.run_single_task_in_thread(service.test_webhook, payload)
-    else:
-        tmdb_logger.warning(f"Ignoring unknown job: {job_type}.")
+        return service.run_single_task_in_thread(
+            service.test_webhook, payload, completion_callback=completion_callback
+        )
+    raise ValueError(f"Unknown job type: {job_type}.")
 
 
-def init_job_queue_table(conn) -> None:
-    """Ensure job queue table and trigger exist"""
-    with conn.cursor() as cur:
-        cur.execute(JOB_QUEUE_TABLE_SQL)
-        conn.commit()
+def finalize_job(job_id: int, error: Exception | None) -> None:
+    """Persist the outcome reported by a service worker thread."""
+    try:
+        if error is None:
+            complete_job(job_id)
+            tmdb_logger.info(f"Job {job_id} completed and was acknowledged.")
+        else:
+            fail_job(job_id, error)
+            tmdb_logger.error(f"Job {job_id} failed and was retained for inspection.")
+    except Exception:
+        tmdb_logger.exception(f"Unable to persist completion state for job {job_id}.")
+
+
+def dispatch_queued_jobs(conn, service: TMDBService) -> None:
+    """Dispatch queued jobs until the service is busy or the queue is empty."""
+    while row := claim_next_job(conn):
+        job_id, job_type, payload = row
+        callback = partial(finalize_job, job_id)
+        try:
+            accepted = process_job(job_type, payload, service, callback)
+        except Exception as error:
+            tmdb_logger.error(
+                f"Unable to dispatch job {job_id}: {error}", exc_info=True
+            )
+            fail_job(job_id, error)
+            continue
+
+        if not accepted:
+            requeue_job(job_id)
+            tmdb_logger.info(
+                f"Job {job_id} could not start yet and was returned to the queue."
+            )
+            return
 
 
 def main() -> None:
     tmdb_logger.info("Starting TMDB Worker Service.")
     service = TMDBService()
     service.apply_unaccent()
+
+    conn = get_conn()
+    init_job_queue_table(conn)
+    interrupted_jobs = requeue_interrupted_jobs(conn)
+    if interrupted_jobs:
+        tmdb_logger.warning(
+            f"Requeued {interrupted_jobs} job(s) interrupted by the previous worker."
+        )
 
     # aiocron binds jobs to the current event loop when they are scheduled. Run that
     # loop in a dedicated thread while this thread blocks waiting for database jobs.
@@ -73,32 +132,18 @@ def main() -> None:
     cron_thread = threading.Thread(target=cron_loop.run_forever, daemon=True)
     cron_thread.start()
 
-    conn = get_conn()
-    init_job_queue_table(conn)
     conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
     cur = conn.cursor()
     cur.execute("LISTEN new_job;")
     tmdb_logger.info("Listening for new jobs...")
+    dispatch_queued_jobs(conn, service)
 
     try:
         while True:
-            if select.select([conn], [], [], 5) == ([], [], []):
-                continue  # timeout, loop again
-            conn.poll()
-            while conn.notifies:
-                notify = conn.notifies.pop(0)
-                job_id = int(notify.payload)
-
-                # fetch and delete the job atomically
-                cur.execute(
-                    "DELETE FROM job_queue WHERE id=%s RETURNING job_type, payload",
-                    (job_id,),
-                )
-                row = cur.fetchone()
-                conn.commit()
-                if row:
-                    job_type, payload = row
-                    process_job(job_type, payload, service)
+            if select.select([conn], [], [], 5) != ([], [], []):
+                conn.poll()
+                conn.notifies.clear()
+            dispatch_queued_jobs(conn, service)
     except KeyboardInterrupt:
         tmdb_logger.info("Shutting down TMDB Worker Service.")
         cron_loop.call_soon_threadsafe(cron_loop.stop)

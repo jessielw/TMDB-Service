@@ -102,9 +102,7 @@ CREATE TABLE staging_movie_cast_members(
     original_name varchar(255),
     known_for_department varchar(255),
     popularity float,
-    profile_path varchar(255),
-    character text,
-    cast_order smallint
+    profile_path varchar(255)
 );
 
 -- Movie Cast Association
@@ -113,6 +111,8 @@ DROP TABLE IF EXISTS staging_movie_cast_assoc CASCADE;
 CREATE TABLE staging_movie_cast_assoc(
     movie_id bigint,
     cast_id bigint,
+    character text,
+    cast_order smallint,
     PRIMARY KEY (movie_id, cast_id)
 );
 
