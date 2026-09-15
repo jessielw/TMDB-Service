@@ -80,7 +80,10 @@ WEBHOOK_URL='https://matrix.example.com/_matrix/maubot/plugin/webhook/send'
 # REST API (Optional)
 API_ENABLED=false
 API_PORT=8000
-API_KEY=your-secret-api-key-here
+API_KEY=generate-a-unique-secret
+API_DOCS_ENABLED=false
+API_RATE_LIMIT=60/minute
+API_FORWARDED_ALLOW_IPS=
 ```
 
 ### 📝 Configuration Details
@@ -165,7 +168,10 @@ WEBHOOK_URL='https://matrix.SOME_URL.net/_matrix/maubot/plugin/BOT_URL/send'
 # api (optional)
 API_ENABLED=true
 API_PORT=8000
-API_KEY='your-secret-api-key-here'
+API_KEY='generate-a-unique-secret'
+API_DOCS_ENABLED=false
+API_RATE_LIMIT=60/minute
+API_FORWARDED_ALLOW_IPS=
 ```
 
 ---
@@ -187,25 +193,35 @@ Add to your `.env` file:
 
 ```env
 API_ENABLED=true          # Enable the REST API
-API_PORT=8000            # Port (default: 8000)
-API_KEY=your-secret-key  # API key for authentication (highly recommended!)
+API_PORT=8000             # Port (default: 8000)
+API_KEY=your-secret-key   # Required when the API is enabled
+API_DOCS_ENABLED=false    # Explicitly expose Swagger, ReDoc, and OpenAPI
+API_RATE_LIMIT=60/minute  # Per-client-IP limit; set false to disable
+API_FORWARDED_ALLOW_IPS=  # Trusted proxy IPs, comma-separated
 ```
 
-> **⚠️ Security Note:** If `API_KEY` is not set, the API is accessible without authentication. Always set an API key for production deployments!
+Generate a unique key, for example with `openssl rand -hex 32`. The API refuses to
+start when the key is blank or still set to the old public example value.
+
+Forwarded client addresses are ignored by default. Set `API_FORWARDED_ALLOW_IPS` to
+the address of each trusted reverse proxy. The explicit value `*` is supported, but
+should only be used when the API port is reachable exclusively through that proxy.
+All non-health routes default to 60 requests per minute per resolved client address.
 
 ### 📚 Interactive Documentation
 
-Once enabled, explore the full API at:
+Set `API_DOCS_ENABLED=true` to expose the interactive documentation at:
 
 - **Swagger UI:** `http://localhost:8000/docs` (interactive, try-it-out features)
 - **ReDoc:** `http://localhost:8000/redoc` (clean, readable documentation)
 
 ### 🔑 Authentication
 
-Include your API key in the `X-API-Key` header with all requests:
+Include your API key in the `X-API-Key` header with all operational requests. The
+health endpoint is intentionally public:
 
 ```bash
-curl -H "X-API-Key: your-secret-key" http://localhost:8000/health
+curl http://localhost:8000/health
 ```
 
 ### 📡 Available Endpoints
@@ -213,7 +229,7 @@ curl -H "X-API-Key: your-secret-key" http://localhost:8000/health
 <table>
 <tr><th>Category</th><th>Endpoint</th><th>Description</th></tr>
 
-<tr><td rowspan="6"><b>Jobs</b></td>
+<tr><td rowspan="5"><b>Jobs</b></td>
 <td><code>POST /jobs/full-sweep</code></td>
 <td>Trigger complete TMDB data refresh</td></tr>
 
@@ -226,9 +242,6 @@ curl -H "X-API-Key: your-secret-key" http://localhost:8000/health
 <tr><td><code>POST /jobs/prune-deleted</code></td>
 <td>Remove records deleted from TMDB</td></tr>
 
-<tr><td><code>POST /jobs/create-tables</code></td>
-<td>Initialize database schema</td></tr>
-
 <tr><td><code>POST /jobs/test-webhook</code></td>
 <td>Test webhook notifications</td></tr>
 
@@ -239,11 +252,8 @@ curl -H "X-API-Key: your-secret-key" http://localhost:8000/health
 <tr><td><code>POST /series/{tmdb_id}</code></td>
 <td>Add or update specific TV series by ID</td></tr>
 
-<tr><td rowspan="2"><b>Health</b></td>
-<td><code>GET /</code></td>
-<td>API service information</td></tr>
-
-<tr><td><code>GET /health</code></td>
+<tr><td><b>Health</b></td>
+<td><code>GET /health</code></td>
 <td>Health check endpoint</td></tr>
 </table>
 
@@ -325,7 +335,7 @@ docker compose exec tmdb_service manage_jobs test_webhook --message "Test alert"
 ```
 Usage: manage_jobs [-h] [--id ID] [--force] [--message MESSAGE]
                    {full_sweep,missing_ids,prune_deleted,changes_sync,
-                    create_tables,add_movie,add_series,test_webhook}
+                    add_movie,add_series,test_webhook}
 
 Options:
   --id ID           TMDB ID for add_movie/add_series
@@ -336,6 +346,27 @@ Options:
 ---
 
 ## 🗄 Database Backup & Restore
+
+### Automatic Schema Migrations
+
+Every image command applies committed Alembic migrations before starting. Worker, API,
+and CLI containers coordinate with a PostgreSQL advisory lock, so simultaneous starts
+are safe. If a migration fails, the requested process does not start.
+
+Existing unversioned 1.1 and 1.2 databases are adopted automatically. An unknown or
+partial schema is never stamped automatically and requires operator investigation.
+The initial cast-role migration is forward-only; take a backup before upgrading and
+restore that backup if a rollback is necessary.
+
+Developers can create a candidate revision inside the container with:
+
+```bash
+alembic -c pyproject.toml revision --autogenerate -m "describe change"
+alembic -c pyproject.toml check
+```
+
+Always review generated revisions. Because full sweeps replace the media tables, every
+schema change must also be reflected in the staging SQL.
 
 ### Backup Database
 
