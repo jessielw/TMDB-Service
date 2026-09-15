@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from tmdb_service.globals import Base
+from tmdb_service.db_utils import Base
 
 
 class ServiceMetadata(Base):

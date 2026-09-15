@@ -47,6 +47,14 @@ def run_sql_script(engine: Engine, sql_file_path: Path) -> None:
             conn.execute(text(sql_commands))
 
 
+def run_sql_scripts(engine: Engine, sql_file_paths: tuple[Path, ...]) -> None:
+    """Execute related SQL scripts in one transaction."""
+    with engine.begin() as conn:
+        for sql_file_path in sql_file_paths:
+            with open(sql_file_path, "r") as f:
+                conn.execute(text(f.read()))
+
+
 def check_row_count_change(
     engine: Engine, prod_table: str, staging_table: str, threshold: float = 0.5
 ) -> bool:

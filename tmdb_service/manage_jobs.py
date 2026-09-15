@@ -14,7 +14,6 @@ def main() -> None:
             "missing_ids",
             "prune_deleted",
             "changes_sync",
-            "create_tables",
             "add_movie",
             "add_series",
             "test_webhook",

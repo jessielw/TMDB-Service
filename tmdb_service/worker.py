@@ -13,7 +13,6 @@ from tmdb_service.job_queue import (
     complete_job,
     fail_job,
     get_conn,
-    init_job_queue_table,
     requeue_interrupted_jobs,
     requeue_job,
 )
@@ -52,10 +51,6 @@ def process_job(
             service.changes_sync_job,
             completion_callback=completion_callback,
             notify_on_reject=False,
-        )
-    elif job_type == "create_tables":
-        return service.run_single_task_in_thread(
-            service.create_db_tables, completion_callback=completion_callback
         )
     elif job_type == "add_movie":
         return service.run_single_task_in_thread(
@@ -117,7 +112,6 @@ def main() -> None:
     service.apply_unaccent()
 
     conn = get_conn()
-    init_job_queue_table(conn)
     interrupted_jobs = requeue_interrupted_jobs(conn)
     if interrupted_jobs:
         tmdb_logger.warning(

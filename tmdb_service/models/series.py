@@ -11,7 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from tmdb_service.globals import Base
+from tmdb_service.db_utils import Base
 
 series_created_by_assoc = Table(
     "series_created_by_assoc",
@@ -432,7 +432,13 @@ class Series(Base):
         default_factory=list,
     )
     last_episode_to_air_id: Mapped[int | None] = mapped_column(
-        ForeignKey("series_last_episode_to_air.id"), init=False, default=None
+        ForeignKey(
+            "series_last_episode_to_air.id",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        init=False,
+        default=None,
     )
     last_episode_to_air: Mapped[SeriesLastEpisodeToAir | None] = relationship(
         back_populates="series",
@@ -440,7 +446,12 @@ class Series(Base):
         uselist=False,
     )
     next_episode_to_air_id: Mapped[int | None] = mapped_column(
-        ForeignKey("series_next_episode_to_air.id"), init=False
+        ForeignKey(
+            "series_next_episode_to_air.id",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        init=False,
     )
     next_episode_to_air: Mapped[SeriesNextEpisodeToAir | None] = relationship(
         back_populates="series",

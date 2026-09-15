@@ -11,7 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from tmdb_service.globals import Base
+from tmdb_service.db_utils import Base
 
 
 class MovieCollections(Base):

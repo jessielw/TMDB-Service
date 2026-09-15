@@ -25,6 +25,7 @@ from tmdb_service.tmdb_to_csv.utils import (
     close_csv_files,
     open_csv_writers,
     run_sql_script,
+    run_sql_scripts,
     yield_ids,
 )
 
@@ -67,25 +68,18 @@ def load_staging_tables(engine: Engine, base_path: Path) -> None:
 
 
 def promote_staging_to_production(engine: Engine, sql_dir: Path) -> None:
-    """Promote staging tables to production by renaming all tables."""
+    """Atomically promote staging tables and remove the replaced schema."""
     tmdb_logger.info("Promoting staging tables to production tables.")
-    run_sql_script(
+    run_sql_scripts(
         engine,
-        sql_dir / "promote_staging_to_production_movie.sql",
+        (
+            sql_dir / "promote_staging_to_production_movie.sql",
+            sql_dir / "promote_staging_to_production_series.sql",
+            sql_dir / "drop_old_tables_movie.sql",
+            sql_dir / "drop_old_tables_series.sql",
+        ),
     )
-    run_sql_script(
-        engine,
-        sql_dir / "promote_staging_to_production_series.sql",
-    )
-    tmdb_logger.info("Staging tables promoted to production.")
-
-
-def drop_old_tables(engine: Engine, sql_dir: Path) -> None:
-    """Drop old tables after rename."""
-    tmdb_logger.info("Cleaning up staging tables.")
-    run_sql_script(engine, sql_dir / "drop_old_tables_movie.sql")
-    run_sql_script(engine, sql_dir / "drop_old_tables_series.sql")
-    tmdb_logger.info("Staging tables cleaned up.")
+    tmdb_logger.info("Staging tables promoted and replaced tables removed.")
 
 
 def check_safe_to_promote(first_ingestion: bool, engine: Engine, sql_dir: Path):
@@ -98,11 +92,7 @@ def check_safe_to_promote(first_ingestion: bool, engine: Engine, sql_dir: Path):
                 safe_to_promote = False
 
     if safe_to_promote or first_ingestion:
-        # promote staging to production
         promote_staging_to_production(engine, sql_dir)
-
-        # drop old tables
-        drop_old_tables(engine, sql_dir)
     else:
         raise RuntimeError(
             "Aborting promotion: staging row count is more than 50% below production. "
