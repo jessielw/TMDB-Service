@@ -1,7 +1,6 @@
 import asyncio
 import queue
 import threading
-import traceback
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -12,7 +11,7 @@ import aiocron
 from cronsim import CronSim
 from sqlalchemy import text
 
-from tmdb_service.create_tables import create_tables
+from tmdb_service.error_utils import webhook_failure_message
 from tmdb_service.globals import db, db_engine, global_config, tmdb_logger
 from tmdb_service.job_queue import enqueue_job
 from tmdb_service.models.service_metadata import get_metadata, set_metadata
@@ -185,10 +184,9 @@ class TMDBService:
             )
             tmdb_logger.info("Scheduled full sweep completed.")
         except Exception as e:
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             tmdb_logger.error(f"Error in full_sweep: {e}", exc_info=True)
             await update_media_release_webhook_async(
-                f"**TMDB Service Error in full_sweep:**  \n```{tb}```"
+                webhook_failure_message("full sweep", e)
             )
             raise
 
@@ -204,10 +202,9 @@ class TMDBService:
             )
             tmdb_logger.info("Missing IDs sweep completed.")
         except Exception as e:
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             tmdb_logger.error(f"Error in missing IDs sweep: {e}", exc_info=True)
             await update_media_release_webhook_async(
-                f"**TMDB Service Error in missing IDs sweep:**  \n```{tb}```"
+                webhook_failure_message("missing IDs sweep", e)
             )
             raise
 
@@ -217,10 +214,9 @@ class TMDBService:
             await ingest_single_movie(tmdb_id)
             tmdb_logger.info(f"Movie {tmdb_id} ingested.")
         except Exception as e:
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             tmdb_logger.error(f"Error adding movie ID {tmdb_id}: {e}", exc_info=True)
             await update_media_release_webhook_async(
-                f"**TMDB Service Error adding movie ID {tmdb_id}:**  \n```{tb}```"
+                webhook_failure_message(f"movie {tmdb_id} ingestion", e)
             )
             raise
 
@@ -230,10 +226,9 @@ class TMDBService:
             await ingest_single_series(tmdb_id)
             tmdb_logger.info(f"Series {tmdb_id} ingested.")
         except Exception as e:
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             tmdb_logger.error(f"Error adding series ID {tmdb_id}: {e}", exc_info=True)
             await update_media_release_webhook_async(
-                f"**TMDB Service Error adding series ID {tmdb_id}:**  \n```{tb}```"
+                webhook_failure_message(f"series {tmdb_id} ingestion", e)
             )
             raise
 
@@ -249,10 +244,9 @@ class TMDBService:
             )
             tmdb_logger.info("Prune job completed.")
         except Exception as e:
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             tmdb_logger.error(f"Error in prune job: {e}", exc_info=True)
             await update_media_release_webhook_async(
-                f"**TMDB Service Error in prune job:**  \n```{tb}```"
+                webhook_failure_message("prune job", e)
             )
             raise
 
@@ -278,22 +272,9 @@ class TMDBService:
             )
             tmdb_logger.info("Sync task completed.")
         except Exception as e:
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             tmdb_logger.error(f"Error in TMDB sync task: {e}", exc_info=True)
             await update_media_release_webhook_async(
-                f"**TMDB Service Error in TMDB sync task:**  \n```{tb}```"
-            )
-            raise
-
-    async def create_db_tables(self) -> None:
-        tmdb_logger.info("Creating tables.")
-        try:
-            create_tables()
-        except Exception as e:
-            tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-            tmdb_logger.error(f"Error creating tables: {e}", exc_info=True)
-            await update_media_release_webhook_async(
-                f"**TMDB Service Error creating tables:**  \n```{tb}```"
+                webhook_failure_message("changes sync", e)
             )
             raise
 
@@ -303,7 +284,6 @@ class TMDBService:
             await update_media_release_webhook_async(message)
             tmdb_logger.info("Webhook test completed.")
         except Exception as e:
-            # tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             tmdb_logger.error(f"Error testing webhook: {e}", exc_info=True)
             raise
 
@@ -315,8 +295,6 @@ class TMDBService:
 
     def init_cron_jobs(self) -> None:
         tmdb_logger.info("Starting TMDB Service.")
-        tmdb_logger.info("Creating tables if needed.")
-        create_tables()
         cron_jobs = {
             "Full Sweep": (global_config.CRON_FULL_SWEEP, "full_sweep"),
             "Missing IDs": (global_config.CRON_MISSING_ONLY, "missing_ids"),
