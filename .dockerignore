@@ -5,9 +5,11 @@ logs/
 
 # files
 .env
-gitignore
-docker-*.yml
+.gitignore
+docker-compose*.yaml
 Dockerfile
 log_rotator.conf
 uv.lock
 README.md
+scraps/
+temp_dir/
