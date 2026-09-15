@@ -3,7 +3,7 @@ DROP TABLE IF EXISTS staging_movie_collections CASCADE;
 
 CREATE TABLE staging_movie_collections(
     id bigint PRIMARY KEY,
-    name text,
+    name varchar,
     poster_path varchar(255),
     backdrop_path varchar(255)
 );
@@ -30,7 +30,7 @@ DROP TABLE IF EXISTS staging_movie_production_companies CASCADE;
 
 CREATE TABLE staging_movie_production_companies(
     id bigint PRIMARY KEY,
-    name text,
+    name varchar,
     origin_country varchar(255),
     logo_path varchar(255)
 );
@@ -48,8 +48,8 @@ CREATE TABLE staging_movie_companies_assoc(
 DROP TABLE IF EXISTS staging_movie_production_countries CASCADE;
 
 CREATE TABLE staging_movie_production_countries(
-    iso_3166_1 text PRIMARY KEY,
-    name text
+    iso_3166_1 varchar PRIMARY KEY,
+    name varchar
 );
 
 -- Movie Countries Association
@@ -57,7 +57,7 @@ DROP TABLE IF EXISTS staging_movie_countries_assoc CASCADE;
 
 CREATE TABLE staging_movie_countries_assoc(
     movie_id bigint,
-    country_id text,
+    country_id varchar,
     PRIMARY KEY (movie_id, country_id)
 );
 
@@ -65,7 +65,7 @@ CREATE TABLE staging_movie_countries_assoc(
 DROP TABLE IF EXISTS staging_movie_spoken_languages CASCADE;
 
 CREATE TABLE staging_movie_spoken_languages(
-    iso_639_1 text PRIMARY KEY,
+    iso_639_1 varchar PRIMARY KEY,
     english_name varchar(255),
     name varchar(255)
 );
@@ -75,7 +75,7 @@ DROP TABLE IF EXISTS staging_movie_languages_assoc CASCADE;
 
 CREATE TABLE staging_movie_languages_assoc(
     movie_id bigint,
-    language_id text,
+    language_id varchar,
     PRIMARY KEY (movie_id, language_id)
 );
 
@@ -84,9 +84,9 @@ DROP TABLE IF EXISTS staging_movie_alternative_titles CASCADE;
 
 CREATE TABLE staging_movie_alternative_titles(
     id bigserial PRIMARY KEY,
-    iso_3166_1 text,
-    title text,
-    type TEXT,
+    iso_3166_1 varchar,
+    title varchar,
+    type varchar,
     movie_id bigint
 );
 
@@ -97,7 +97,7 @@ CREATE TABLE staging_movie_cast_members(
     id bigint PRIMARY KEY,
     adult boolean,
     gender smallint,
-    cast_id bigint,
+    cast_id int,
     name varchar(255),
     original_name varchar(255),
     known_for_department varchar(255),
@@ -111,7 +111,7 @@ DROP TABLE IF EXISTS staging_movie_cast_assoc CASCADE;
 CREATE TABLE staging_movie_cast_assoc(
     movie_id bigint,
     cast_id bigint,
-    character text,
+    character varchar,
     cast_order smallint,
     PRIMARY KEY (movie_id, cast_id)
 );
@@ -150,11 +150,11 @@ DROP TABLE IF EXISTS staging_movie_release_dates CASCADE;
 
 CREATE TABLE staging_movie_release_dates(
     id bigserial PRIMARY KEY,
-    iso_3166_1 text,
-    certification text,
+    iso_3166_1 varchar,
+    certification varchar,
     release_date timestamp,
     type INT,
-    note text,
+    note varchar,
     movie_id bigint
 );
 
@@ -163,9 +163,9 @@ DROP TABLE IF EXISTS staging_movie_videos CASCADE;
 
 CREATE TABLE staging_movie_videos(
     id varchar(255) PRIMARY KEY,
-    iso_639_1 text,
-    iso_3166_1 text,
-    name text,
+    iso_639_1 varchar,
+    iso_3166_1 varchar,
+    name varchar,
     key VARCHAR(255),
     site varchar(255),
     size int,
@@ -182,20 +182,20 @@ CREATE TABLE staging_movie(
     id bigint PRIMARY KEY,
     backdrop_path varchar(255),
     budget bigint,
-    homepage text,
+    homepage varchar,
     imdb_id varchar(12),
-    origin_country text,
+    origin_country varchar,
     original_language varchar(64),
-    original_title text,
-    overview text,
+    original_title varchar,
+    overview varchar,
     popularity float,
     poster_path varchar(255),
     release_date timestamp,
     revenue bigint,
     runtime int,
-    status text,
-    tagline text,
-    title text,
+    status varchar,
+    tagline varchar,
+    title varchar,
     video boolean,
     vote_average float,
     vote_count bigint,
@@ -205,45 +205,62 @@ CREATE TABLE staging_movie(
 -- Foreign keys are added after all tables exist so the promoted schema matches the
 -- ORM-created schema and bulk title deletion removes dependent rows.
 ALTER TABLE staging_movie
-    ADD FOREIGN KEY (belongs_to_collection_id)
+    ADD CONSTRAINT fk_movie_belongs_to_collection_id
+    FOREIGN KEY (belongs_to_collection_id)
     REFERENCES staging_movie_collections(id);
 
 ALTER TABLE staging_movie_genres_assoc
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
-    ADD FOREIGN KEY (genre_id) REFERENCES staging_movie_genres(id) ON DELETE CASCADE;
+    ADD CONSTRAINT fk_movie_genres_assoc_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_movie_genres_assoc_genre_id
+    FOREIGN KEY (genre_id) REFERENCES staging_movie_genres(id) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_companies_assoc
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
-    ADD FOREIGN KEY (company_id)
+    ADD CONSTRAINT fk_movie_companies_assoc_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_movie_companies_assoc_company_id
+    FOREIGN KEY (company_id)
     REFERENCES staging_movie_production_companies(id) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_countries_assoc
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
-    ADD FOREIGN KEY (country_id)
+    ADD CONSTRAINT fk_movie_countries_assoc_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_movie_countries_assoc_country_id
+    FOREIGN KEY (country_id)
     REFERENCES staging_movie_production_countries(iso_3166_1) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_languages_assoc
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
-    ADD FOREIGN KEY (language_id)
+    ADD CONSTRAINT fk_movie_languages_assoc_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_movie_languages_assoc_language_id
+    FOREIGN KEY (language_id)
     REFERENCES staging_movie_spoken_languages(iso_639_1) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_alternative_titles
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
+    ADD CONSTRAINT fk_movie_alternative_titles_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_cast_assoc
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
-    ADD FOREIGN KEY (cast_id)
+    ADD CONSTRAINT fk_movie_cast_assoc_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_movie_cast_assoc_cast_id
+    FOREIGN KEY (cast_id)
     REFERENCES staging_movie_cast_members(id) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_external_ids
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
+    ADD CONSTRAINT fk_movie_external_ids_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_keywords_assoc
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
-    ADD FOREIGN KEY (id) REFERENCES staging_movie_keywords(id) ON DELETE CASCADE;
+    ADD CONSTRAINT fk_movie_keywords_assoc_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_movie_keywords_assoc_id
+    FOREIGN KEY (id) REFERENCES staging_movie_keywords(id) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_release_dates
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
+    ADD CONSTRAINT fk_movie_release_dates_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
 
 ALTER TABLE staging_movie_videos
-    ADD FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
+    ADD CONSTRAINT fk_movie_videos_movie_id
+    FOREIGN KEY (movie_id) REFERENCES staging_movie(id) ON DELETE CASCADE;
