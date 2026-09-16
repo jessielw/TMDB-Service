@@ -290,6 +290,11 @@ def _ensure_foreign_key(
         ondelete=ondelete,
         deferrable=True if deferred else None,
         initially="DEFERRED" if deferred else None,
+        # Legacy full sweeps could leave dangling relationship rows. Preserve
+        # them during the first Alembic adoption while enforcing the key for
+        # every new write. A subsequent staging-table full sweep installs the
+        # same constraints fully validated against its clean replacement data.
+        postgresql_not_valid=True,
     )
 
 

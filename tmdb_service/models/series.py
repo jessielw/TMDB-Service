@@ -5,9 +5,11 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     SmallInteger,
     String,
     Table,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -420,6 +422,15 @@ class Series(Base):
     type: Mapped[str | None] = mapped_column(default=None)
     vote_average: Mapped[float | None] = mapped_column(default=None)
     vote_count: Mapped[int | None] = mapped_column(BigInteger, default=None)
+
+    __table_args__ = (
+        Index(
+            "ix_series_tmdb_search_name",
+            func.tmdb_normalize_title(name).label("search_name"),
+            postgresql_using="gin",
+            postgresql_ops={"search_name": "public.gin_trgm_ops"},
+        ),
+    )
 
     created_by: Mapped[list[SeriesCreatedBy]] = relationship(
         secondary=series_created_by_assoc,

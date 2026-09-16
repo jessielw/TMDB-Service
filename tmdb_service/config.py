@@ -29,7 +29,6 @@ class Config:
         "CRON_MISSING_ONLY",
         "CRON_PRUNE",
         "DATABASE_URI",
-        "ENABLE_UNACCENT",
         "LOG_LVL",
         "LOG_TO_CONSOLE",
         "TMDB_BATCH_INSERT",
@@ -59,8 +58,6 @@ class Config:
         self.logs.mkdir(exist_ok=True)
 
         self.DATABASE_URI = str(os.environ["DATABASE_URI"]).strip()
-        self.ENABLE_UNACCENT = check_truthy(os.environ.get("ENABLE_UNACCENT"))
-
         self.CRON_FULL_SWEEP = str(os.environ["CRON_FULL_SWEEP"]).strip()
         self.CRON_MISSING_ONLY = str(os.environ["CRON_MISSING_ONLY"]).strip()
         self.CRON_PRUNE = str(os.environ["CRON_PRUNE"]).strip()

@@ -9,10 +9,9 @@ from typing import Any
 
 import aiocron
 from cronsim import CronSim
-from sqlalchemy import text
 
 from tmdb_service.error_utils import webhook_failure_message
-from tmdb_service.globals import db, db_engine, global_config, tmdb_logger
+from tmdb_service.globals import db, global_config, tmdb_logger
 from tmdb_service.job_queue import enqueue_job
 from tmdb_service.models.service_metadata import get_metadata, set_metadata
 from tmdb_service.notifications import (
@@ -286,12 +285,6 @@ class TMDBService:
         except Exception as e:
             tmdb_logger.error(f"Error testing webhook: {e}", exc_info=True)
             raise
-
-    def apply_unaccent(self) -> None:
-        if global_config.ENABLE_UNACCENT:
-            tmdb_logger.info("Adding extension unaccent if not added already.")
-            with db_engine.begin() as conn:
-                conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent;"))
 
     def init_cron_jobs(self) -> None:
         tmdb_logger.info("Starting TMDB Service.")

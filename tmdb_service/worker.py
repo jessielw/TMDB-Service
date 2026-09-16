@@ -109,7 +109,6 @@ def dispatch_queued_jobs(conn, service: TMDBService) -> None:
 def main() -> None:
     tmdb_logger.info("Starting TMDB Worker Service.")
     service = TMDBService()
-    service.apply_unaccent()
 
     conn = get_conn()
     interrupted_jobs = requeue_interrupted_jobs(conn)

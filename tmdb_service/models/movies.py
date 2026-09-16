@@ -5,9 +5,11 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     SmallInteger,
     String,
     Table,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -314,6 +316,15 @@ class Movie(Base):
     video: Mapped[bool | None] = mapped_column(default=None)
     vote_average: Mapped[float | None] = mapped_column(default=None)
     vote_count: Mapped[int | None] = mapped_column(BigInteger, default=None)
+
+    __table_args__ = (
+        Index(
+            "ix_movie_tmdb_search_title",
+            func.tmdb_normalize_title(title).label("search_title"),
+            postgresql_using="gin",
+            postgresql_ops={"search_title": "public.gin_trgm_ops"},
+        ),
+    )
 
     belongs_to_collection_id: Mapped[int | None] = mapped_column(
         ForeignKey("movie_collections.id"), init=False, default=None

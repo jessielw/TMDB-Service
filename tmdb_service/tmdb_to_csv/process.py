@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine
 
 from tmdb_service.globals import global_config, tmdb_logger
 from tmdb_service.tasks import download_tmdb_ids
@@ -67,6 +67,13 @@ def load_staging_tables(engine: Engine, base_path: Path) -> None:
     tmdb_logger.info("Staging tables loaded.")
 
 
+def create_staging_search_indexes(engine: Engine, sql_dir: Path) -> None:
+    """Index and analyze the loaded title tables before their atomic swap."""
+    tmdb_logger.info("Creating staging title-search indexes.")
+    run_sql_script(engine, sql_dir / "create_staging_search_indexes.sql")
+    tmdb_logger.info("Staging title-search indexes created.")
+
+
 def promote_staging_to_production(engine: Engine, sql_dir: Path) -> None:
     """Atomically promote staging tables and remove the replaced schema."""
     tmdb_logger.info("Promoting staging tables to production tables.")
@@ -77,6 +84,7 @@ def promote_staging_to_production(engine: Engine, sql_dir: Path) -> None:
             sql_dir / "promote_staging_to_production_series.sql",
             sql_dir / "drop_old_tables_movie.sql",
             sql_dir / "drop_old_tables_series.sql",
+            sql_dir / "finalize_search_indexes.sql",
         ),
     )
     tmdb_logger.info("Staging tables promoted and replaced tables removed.")
@@ -92,6 +100,7 @@ def check_safe_to_promote(first_ingestion: bool, engine: Engine, sql_dir: Path):
                 safe_to_promote = False
 
     if safe_to_promote or first_ingestion:
+        create_staging_search_indexes(engine, sql_dir)
         promote_staging_to_production(engine, sql_dir)
     else:
         raise RuntimeError(
@@ -168,11 +177,6 @@ async def generate_csvs(first_ingestion: bool):
         create_staging_tables(engine, sql_dir)
         load_staging_tables(engine, csvs_path)
         check_safe_to_promote(first_ingestion, engine, sql_dir)
-
-        if global_config.ENABLE_UNACCENT:
-            tmdb_logger.info("Adding extension unaccent.")
-            with engine.begin() as conn:
-                conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent;"))
     finally:
         try:
             close_csv_files(files)

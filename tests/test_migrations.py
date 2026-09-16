@@ -76,7 +76,7 @@ def test_empty_database_migrates_to_head_and_is_idempotent(
     monkeypatch, isolated_database_uri
 ):
     migrate_uri(monkeypatch, isolated_database_uri)
-    assert current_revision(isolated_database_uri) == "0002_v1_2_schema"
+    assert current_revision(isolated_database_uri) == "0003_title_search_indexes"
 
     engine = create_engine(isolated_database_uri)
     try:
@@ -85,7 +85,7 @@ def test_empty_database_migrates_to_head_and_is_idempotent(
         engine.dispose()
 
     migrate_uri(monkeypatch, isolated_database_uri)
-    assert current_revision(isolated_database_uri) == "0002_v1_2_schema"
+    assert current_revision(isolated_database_uri) == "0003_title_search_indexes"
 
 
 def test_unversioned_legacy_database_is_adopted_and_preserves_cast_data(
@@ -106,6 +106,16 @@ def test_unversioned_legacy_database_is_adopted_and_preserves_cast_data(
             text("INSERT INTO movie_cast_assoc (movie_id, cast_id) VALUES (1, 2)")
         )
         connection.execute(
+            text(
+                "ALTER TABLE movie_genres_assoc "
+                "DROP CONSTRAINT movie_genres_assoc_movie_id_fkey, "
+                "DROP CONSTRAINT movie_genres_assoc_genre_id_fkey"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO movie_genres_assoc (movie_id, genre_id) VALUES (999, 42)")
+        )
+        connection.execute(
             text("INSERT INTO job_queue (job_type) VALUES ('changes_sync')")
         )
         connection.execute(text("DROP TABLE alembic_version"))
@@ -121,6 +131,16 @@ def test_unversioned_legacy_database_is_adopted_and_preserves_cast_data(
             )
         ).one()
         assert role == ("Lead", 1)
+        assert connection.execute(
+            text("SELECT count(*) FROM movie_genres_assoc WHERE movie_id = 999")
+        ).scalar_one() == 1
+        assert connection.execute(
+            text(
+                "SELECT convalidated FROM pg_constraint "
+                "WHERE conname = 'fk_movie_genres_assoc_movie_id' "
+                "AND conrelid = 'movie_genres_assoc'::regclass"
+            )
+        ).scalar_one() is False
         member_columns = {
             column["name"]
             for column in inspect(connection).get_columns("movie_cast_members")
@@ -151,7 +171,7 @@ def test_already_current_unversioned_database_is_adopted(
     engine.dispose()
 
     migrate_uri(monkeypatch, isolated_database_uri)
-    assert current_revision(isolated_database_uri) == "0002_v1_2_schema"
+    assert current_revision(isolated_database_uri) == "0003_title_search_indexes"
 
 
 def test_partial_schema_is_not_stamped(monkeypatch, isolated_database_uri):
@@ -177,7 +197,47 @@ def test_simultaneous_migrators_serialize(monkeypatch, isolated_database_uri):
         futures = [executor.submit(run_migrations) for _ in range(2)]
         for future in futures:
             future.result(timeout=30)
-    assert current_revision(isolated_database_uri) == "0002_v1_2_schema"
+    assert current_revision(isolated_database_uri) == "0003_title_search_indexes"
+
+
+def test_title_search_function_and_indexes_are_owned_by_schema_migration(
+    monkeypatch, isolated_database_uri
+):
+    migrate_uri(monkeypatch, isolated_database_uri)
+    engine = create_engine(isolated_database_uri)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO movie (id, title) VALUES (1, 'Amélie: The Movie')"
+                )
+            )
+            connection.execute(
+                text("INSERT INTO series (id, name) VALUES (2, 'Spider-Man')")
+            )
+
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT tmdb_normalize_title('Amélie: The Movie')")
+            ).scalar_one() == "amelie the movie"
+            indexes = {
+                row.indexname: row.tablename
+                for row in connection.execute(
+                    text(
+                        "SELECT indexname, tablename FROM pg_indexes "
+                        "WHERE schemaname = current_schema() "
+                        "AND indexname IN "
+                        "('ix_movie_tmdb_search_title', "
+                        "'ix_series_tmdb_search_name')"
+                    )
+                )
+            }
+            assert indexes == {
+                "ix_movie_tmdb_search_title": "movie",
+                "ix_series_tmdb_search_name": "series",
+            }
+    finally:
+        engine.dispose()
 
 
 def test_staging_promotion_matches_alembic_metadata(monkeypatch, isolated_database_uri):
@@ -190,15 +250,37 @@ def test_staging_promotion_matches_alembic_metadata(monkeypatch, isolated_databa
                 connection.execute(text((sql_dir / filename).read_text()))
 
         with engine.begin() as connection:
+            connection.execute(
+                text((sql_dir / "create_staging_search_indexes.sql").read_text())
+            )
+
+        with engine.begin() as connection:
             for filename in (
                 "promote_staging_to_production_movie.sql",
                 "promote_staging_to_production_series.sql",
                 "drop_old_tables_movie.sql",
                 "drop_old_tables_series.sql",
+                "finalize_search_indexes.sql",
             ):
                 connection.execute(text((sql_dir / filename).read_text()))
 
         with engine.connect() as connection:
             command.check(_alembic_config(connection))
+            indexes = {
+                row.indexname: row.tablename
+                for row in connection.execute(
+                    text(
+                        "SELECT indexname, tablename FROM pg_indexes "
+                        "WHERE schemaname = current_schema() "
+                        "AND indexname IN "
+                        "('ix_movie_tmdb_search_title', "
+                        "'ix_series_tmdb_search_name')"
+                    )
+                )
+            }
+            assert indexes == {
+                "ix_movie_tmdb_search_title": "movie",
+                "ix_series_tmdb_search_name": "series",
+            }
     finally:
         engine.dispose()

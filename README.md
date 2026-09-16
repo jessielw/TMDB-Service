@@ -52,8 +52,7 @@ POSTGRES_USER=tmdb
 POSTGRES_PASSWORD='secure-password-here'
 POSTGRES_DB=tmdb
 
-# PostgreSQL Extensions
-ENABLE_UNACCENT=true  # Improves text search
+# PostgreSQL title-search extensions and indexes are installed automatically.
 
 # TMDB API
 TMDB_READ_ACCESS_TOKEN='your-tmdb-read-access-token'
@@ -147,7 +146,6 @@ DATABASE_URI='postgresql://tmdb:pw@tmdb_postgres:5432/tmdb'
 POSTGRES_USER=tmdb
 POSTGRES_PASSWORD='pw'
 POSTGRES_DB=tmdb
-ENABLE_UNACCENT=true
 CRON_FULL_SWEEP='0 3 13,28 * *'
 CRON_MISSING_ONLY='0 6 * * 1'
 CRON_PRUNE='0 3 19 * *'
